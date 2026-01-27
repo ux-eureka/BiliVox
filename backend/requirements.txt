@@ -1,0 +1,16 @@
+# Web框架
+fastapi
+uvicorn
+
+# 数据验证
+pydantic
+pydantic-settings
+
+# 核心依赖
+python-dotenv
+pyyaml
+
+# 其他
+torch
+requests
+psutil

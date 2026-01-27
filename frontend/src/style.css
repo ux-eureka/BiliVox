@@ -1,0 +1,29 @@
+@import './styles/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  color: rgb(var(--ui-text));
+  background: rgb(var(--ui-canvas));
+  --td-brand-color: rgb(var(--ui-brand));
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background-color: rgb(var(--ui-canvas));
+}
+
+#app {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* 覆盖 TDesign 的一些默认样式以适配 Tailwind */
+.t-layout {
+  background: transparent;
+}

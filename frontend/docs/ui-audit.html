@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BiliVox UI 审计与体验优化报告</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --text: #111827;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+          Arial, "Noto Sans", "Liberation Sans", "PingFang SC", "Hiragino Sans GB",
+          "Microsoft YaHei", sans-serif;
+        color: var(--text);
+        background: var(--bg);
+      }
+      .container {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 32px 24px;
+      }
+      h1 { font-size: 28px; margin: 0 0 8px; }
+      h2 { font-size: 18px; margin: 28px 0 12px; padding-top: 8px; border-top: 1px solid var(--border); }
+      h3 { font-size: 14px; margin: 18px 0 8px; color: #0f172a; }
+      p, li { line-height: 1.6; }
+      .meta { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        margin: 12px 0;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      @media print {
+        .container { padding: 0; }
+        a { color: inherit; text-decoration: none; }
+        h2 { page-break-before: auto; }
+        .card { break-inside: avoid; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>BiliVox UI 审计与体验优化报告（本地版）</h1>
+      <div class="meta">
+        目标地址：<span class="pill">http://localhost:3000/</span>
+        <span class="pill">生成方式：代码审计 + 本地运行核对</span>
+      </div>
+
+      <div class="card">
+        <h2>0. 结论摘要（可执行）</h2>
+        <ul>
+          <li><b>样式链路不闭环</b> 会导致“改了 class 但页面不变”；需要补齐 PostCSS/Tailwind 配置。</li>
+          <li><b>多套组件库并存</b>（TDesign + Tailwind + Vuetify）导致断点、间距、圆角、阴影与交互反馈不一致。</li>
+          <li><b>页面级布局缺少统一规则</b>：容器宽度、padding 与固定侧栏宽度在多个地方重复定义，易漂移。</li>
+        </ul>
+      </div>
+
+      <h2>1. 现状 UI 设计语言盘点</h2>
+      <h3>1.1 组件体系</h3>
+      <ul>
+        <li>TDesign：主要页面布局与基础组件</li>
+        <li>Tailwind：大量 utility class 控制间距/排版/颜色</li>
+        <li>Vuetify：配置中心页面大量使用（体验割裂来源之一）</li>
+      </ul>
+
+      <h3>1.2 色彩 / 排版 / 间距</h3>
+      <ul>
+        <li>颜色来源混用：TDesign token、Tailwind class、硬编码色值并存</li>
+        <li>排版缺少字号阶梯：同层级组件字号/字重不一致</li>
+        <li>断点与栅格三套并存：TDesign / Tailwind / Vuetify</li>
+      </ul>
+
+      <h2>2. 响应式与可访问性</h2>
+      <div class="card">
+        <h3>响应式高风险点</h3>
+        <ul>
+          <li>固定宽侧栏在平板宽度下易挤压主内容，建议仅在 xl 以上固定。</li>
+          <li>同页 Grid + Row/Col 混搭容易出现断点错位，建议页面级统一 Grid。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>可访问性要点（WCAG 2.1 AA）</h3>
+        <ul>
+          <li>小字灰度需保证对比度（正文 ≥ 4.5:1）。</li>
+          <li>icon-only 按钮需要 aria-label/title。</li>
+        </ul>
+      </div>
+
+      <h2>3. 优先级问题清单</h2>
+      <div class="card">
+        <h3>P0（高）</h3>
+        <ul>
+          <li>样式链路不闭环导致“UI 不变化”（补齐 Tailwind/PostCSS）。</li>
+          <li>多组件库并存导致一致性断裂（短期 token 统一，中长期统一组件体系）。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>P1（中）</h3>
+        <ul>
+          <li>层级不清：容器/卡片/卡片组缺少一致的 Surface 规则。</li>
+          <li>响应式策略混乱：统一 Grid + 固定宽仅在大屏启用。</li>
+        </ul>
+      </div>
+
+      <h2>4. 已实施的立即修复（摘要）</h2>
+      <ul>
+        <li>补齐 Tailwind/PostCSS 配置闭环，确保 utility class 可稳定生效。</li>
+        <li>引入 tokens.css，统一颜色/圆角/阴影的“单一来源”。</li>
+        <li>统计区域改为“大容器 + 三张小白卡”，提高层级可读性。</li>
+      </ul>
+
+      <h2>5. 导出 PDF</h2>
+      <p>在浏览器打开本文件后，使用“打印 → 另存为 PDF”即可导出。</p>
+    </div>
+  </body>
+</html>

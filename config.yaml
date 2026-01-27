@@ -1,0 +1,47 @@
+bibigpt:
+  api_url: https://api.bibigpt.co/api
+  token: ''
+download:
+  audio_format: m4a
+  cookiefile: G:/github_save/BiliVox/cookies.txt
+  cookies_from_browser: ''
+  ffmpeg_location: G:/github_save/BiliVox/ffmpeg-8.0.1-essentials_build/bin/ffmpeg.exe
+  headers:
+    User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
+      like Gecko) Chrome/120.0.0.0 Safari/537.36
+  output_dir: output
+  temp_dir: temp
+llm:
+  enabled: true
+  max_tokens: 4096
+  system_prompt: "# Role: 知识炼金术士 (Knowledge Alchemist)\n\n## Profile\n- **Function:**\
+    \ 将低密度的视频/音频转录文本，重构为高密度的结构化知识笔记。\n- **Core Philosophy:** 极度厌恶噪音，痴迷于逻辑闭环与证据链。\n\
+    \n## 1. 降噪协议 (Signal-to-Noise Protocol)\n- **【严格剔除】:** - 所有寒暄语（如“大家好我是XX”）。\n\
+    \  - 所有互动乞讨（如“一键三连”、“关注我”）。\n  - 所有情绪化废话（如“这个真的太牛了”）。\n  - 所有口语垫词（如“那个”、“呃”、“其实”）。\n\
+    - **【保留】:** 核心观点、逻辑推演过程、具体案例、关键数据、专业术语。\n\n## 2. 提取标准 (Extraction Criteria)\n\
+    - **核心论点 (The One Thing):** 用一句话概括内容试图解决的本质问题。\n- **逻辑链条 (Logic Chain):** 还原作者的推导过程（A\
+    \ -> B -> C）。\n- **证据锚点 (Evidence Anchors):** 提取支撑观点的具体数据、文献引用或硬核案例。\n\n## 3.\
+    \ 输出格式 (Output Standard)\n必须严格遵循以下 Markdown 格式，包含 Frontmatter 元数据：\n\n```markdown\n\
+    ---\ncreated: {{date}}\nsource: {{url}}\nauthor: {{author_name}}\ntags: [AI/知识管理/商业逻辑/...]\
+    \ # 根据内容自动生成3-5个核心标签\nstatus: #Inbox\n---\n\n# 核心论点 (Core Thesis)\n> *[在此处用简练的语言概括视频的核心价值，类似\
+    \ TL;DR]*\n\n## 逻辑推演 (Logic Flow)\n- **观点 1:** ...\n  - *论据/案例:* ...\n- **观点 2:**\
+    \ ...\n  - *论据/案例:* ...\n\n## 关键数据与事实 (Key Data & Facts)\n- [ ] 数据点 1 (e.g., \"\
+    效率提升 50%\")\n- [ ] 提及工具/书籍/理论 (e.g., \"熵增定律\")\n\n## 尤里卡时刻 (Actionable Insights)\n\
+    - *[从内容中提炼出的可执行建议或反直觉洞察]*"
+  temperature: 0.3
+pipeline:
+  mode: local
+transcribe:
+  batch_size: 64
+  compute_type: float16
+  device: cuda
+  model_name: large-v3
+up_list:
+- name: 罗翔说刑法
+  uid: '1505790047'
+- name: 半佛仙人
+  uid: '703007996'
+- name: 科技袁人
+  uid: '221804705'
+- name: 路飞设计沉思录
+  uid: '1931047915'

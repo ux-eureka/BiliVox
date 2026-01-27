@@ -1,0 +1,18 @@
+# 基础依赖
+python-dotenv
+pyyaml
+tqdm
+colorama
+
+# 下载器
+yt-dlp
+
+# ASR 转录
+faster-whisper
+
+# LLM 处理
+openai
+
+# 辅助库
+requests
+psutil
