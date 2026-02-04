@@ -303,6 +303,8 @@ class BiliDownloader:
                             'url': url,
                             'upload_date': sub_entry.get('upload_date'),
                             'duration': sub_entry.get('duration'),
+                            'uploader': sub_entry.get('uploader'),
+                            'uid': sub_entry.get('uploader_id') or sub_entry.get('channel_id'),
                         })
                 else:
                     bv_id = entry.get('id')
@@ -317,6 +319,8 @@ class BiliDownloader:
                         'url': url,
                         'upload_date': entry.get('upload_date'),
                         'duration': entry.get('duration'),
+                        'uploader': entry.get('uploader'),
+                        'uid': entry.get('uploader_id') or entry.get('channel_id'),
                     })
         
         return videos
@@ -427,20 +431,53 @@ class BiliDownloader:
         bvid = str(bv_id or "").strip()
         if not bvid:
             raise ValueError("无效的 BV 号")
-        api = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
+        # 改用 view/detail 接口以获取更完整的元数据（包含 tags）
+        api = f"https://api.bilibili.com/x/web-interface/view/detail?bvid={bvid}"
         req = Request(api, headers=self.headers)
         with urlopen(req, timeout=10) as resp:
             payload = resp.read().decode("utf-8", errors="replace")
         data = json.loads(payload or "{}")
         if not isinstance(data, dict) or data.get("code") != 0:
             raise ValueError("B 站接口返回异常")
-        info = data.get("data") or {}
+        
+        # detail 接口的数据结构：data -> View, Card, Tags, Reply, Related
+        detail = data.get("data") or {}
+        info = detail.get("View") or {}
+        tags_info = detail.get("Tags") or []
+        
         duration = info.get("duration")
+        owner = info.get("owner") or {}
+        
+        # 处理时间戳
+        upload_date = None
+        pubdate = info.get("pubdate")
+        if pubdate:
+            try:
+                import time
+                upload_date = time.strftime("%Y%m%d", time.localtime(pubdate))
+            except Exception:
+                pass
+
+        # 提取标签
+        tags = []
+        if isinstance(tags_info, list):
+            for t in tags_info:
+                name = t.get("tag_name")
+                if name:
+                    tags.append(name)
+
         return {
             "bvId": bvid,
             "title": info.get("title"),
             "duration": duration,
-            "owner": (info.get("owner") or {}).get("name") if isinstance(info.get("owner"), dict) else None,
+            "owner": owner.get("name"),
+            "owner_name": owner.get("name"),
+            "uploader": owner.get("name"),
+            "uid": str(owner.get("mid") or ""),
+            "owner_id": str(owner.get("mid") or ""),
+            "mid": str(owner.get("mid") or ""),
+            "upload_date": upload_date,
+            "tags": tags, # 新增 tags 字段
         }
     
     def cleanup(self, file_path: str):

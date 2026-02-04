@@ -101,6 +101,7 @@ class VideoItem(BaseModel):
     url: str
     uploadDate: str | None = None
     duration: int | None = None
+    uploader: str | None = None
 
 class UpVideosResponse(BaseModel):
     uid: str
@@ -111,11 +112,6 @@ class StartVideoTaskRequest(BaseModel):
     upName: str
     force: bool = Field(default=False, description="是否强制重新处理")
     video: VideoItem
-
-class DiagnosticsStartRequest(BaseModel):
-    uid: str | None = Field(default=None, description="可选：指定 UP UID（为空则使用配置里的第一个 UP）")
-    upName: str | None = Field(default=None, description="可选：UP 名称（用于输出目录）")
-    force: bool = Field(default=True, description="是否强制重新处理（避免命中缓存跳过）")
 
 class DeleteFileRequest(BaseModel):
     path: str
@@ -219,6 +215,7 @@ async def start_video_task(
         "url": req.video.url,
         "upload_date": req.video.uploadDate,
         "duration": req.video.duration,
+        "uploader": req.video.uploader,
     }
     try:
         bilivox.start_processing_for_video(req.upName, video, force=req.force, task_id=req.taskId)
@@ -244,28 +241,6 @@ async def get_status(bilivox: BiliVoxManager = Depends(get_bilivox_manager)):
 @router.get("/selfcheck")
 async def selfcheck(bilivox: BiliVoxManager = Depends(get_bilivox_manager)):
     return bilivox.get_selfcheck()
-
-@router.post("/diagnostics/start")
-async def start_diagnostics(
-    req: DiagnosticsStartRequest,
-    bilivox: BiliVoxManager = Depends(get_bilivox_manager),
-    _: None = Depends(require_api_key),
-):
-    try:
-        return bilivox.start_diagnostics(uid=req.uid, up_name=req.upName, force=req.force)
-    except Exception as e:
-        raise HTTPException(status_code=409, detail=str(e))
-
-@router.get("/diagnostics/report")
-async def get_diagnostics_report(
-    taskId: str | None = Query(default=None),
-    bilivox: BiliVoxManager = Depends(get_bilivox_manager),
-    _: None = Depends(require_api_key),
-):
-    try:
-        return bilivox.get_diagnostics_report(task_id=taskId)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
 # 获取历史记录
 @router.get("/history", response_model=List[HistoryResponse])
@@ -364,6 +339,103 @@ async def batch_download_files(
         return StreamingResponse(
             zip_stream,
             media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class BatchDeleteRequest(BaseModel):
+    files: List[str]
+
+class LLMPresetItem(BaseModel):
+    id: str | None = None
+    name: str = Field(..., max_length=50)
+    description: str | None = Field(None, max_length=200)
+    api_base_url: str | None = None
+    api_key: str | None = None
+    model_name: str | None = None
+    system_prompt: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+class PresetsImportRequest(BaseModel):
+    presets: List[LLMPresetItem]
+
+@router.get("/llm/presets")
+async def get_llm_presets(bilivox: BiliVoxManager = Depends(get_bilivox_manager)):
+    return bilivox.get_llm_presets()
+
+@router.post("/llm/presets")
+async def add_llm_preset(
+    preset: LLMPresetItem, 
+    bilivox: BiliVoxManager = Depends(get_bilivox_manager), 
+    _: None = Depends(require_api_key)
+):
+    try:
+        return bilivox.add_llm_preset(preset.model_dump())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/llm/presets/{preset_id}")
+async def update_llm_preset(
+    preset_id: str, 
+    preset: LLMPresetItem, 
+    bilivox: BiliVoxManager = Depends(get_bilivox_manager), 
+    _: None = Depends(require_api_key)
+):
+    try:
+        return bilivox.update_llm_preset(preset_id, preset.model_dump(exclude_unset=True))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/llm/presets/{preset_id}")
+async def delete_llm_preset(
+    preset_id: str, 
+    bilivox: BiliVoxManager = Depends(get_bilivox_manager), 
+    _: None = Depends(require_api_key)
+):
+    try:
+        bilivox.delete_llm_preset(preset_id)
+        return {"message": "已删除"}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/llm/presets/import")
+async def import_llm_presets(
+    req: PresetsImportRequest,
+    bilivox: BiliVoxManager = Depends(get_bilivox_manager), 
+    _: None = Depends(require_api_key)
+):
+    try:
+        raw_list = [p.model_dump() for p in req.presets]
+        count = bilivox.batch_import_presets(raw_list)
+        return {"message": f"成功导入 {count} 个预设"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/files/batch-delete")
+async def batch_delete_files(
+    req: BatchDeleteRequest,
+    bilivox: BiliVoxManager = Depends(get_bilivox_manager),
+    _: None = Depends(require_api_key),
+):
+    try:
+        count, errors = bilivox.batch_delete_files(req.files)
+        return {"message": f"已删除 {count} 个文件", "errors": errors}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/files/batch-merge")
+async def batch_merge_files(
+    req: BatchDownloadRequest, # 复用 BatchDownloadRequest (files list)
+    bilivox: BiliVoxManager = Depends(get_bilivox_manager),
+    _: None = Depends(require_api_key),
+):
+    try:
+        stream, filename = bilivox.batch_merge_files(req.files)
+        return StreamingResponse(
+            stream,
+            media_type="text/markdown",
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
     except Exception as e:

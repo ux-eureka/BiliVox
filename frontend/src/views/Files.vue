@@ -41,15 +41,19 @@
         >
           <template #name="{ row }">
             <div class="flex items-center">
-              <div class="w-8 h-8 rounded bg-blue-50 text-blue-600 flex items-center justify-center mr-3">
+              <div class="w-8 h-8 rounded bg-blue-50 text-blue-600 flex items-center justify-center mr-3 flex-shrink-0">
                 <t-icon name="file" />
               </div>
-              <span class="font-medium text-gray-900 hover:text-blue-600 cursor-pointer transition-colors" @click="previewFile(row)">{{ row.name }}</span>
+              <span class="font-medium text-gray-900 hover:text-blue-600 cursor-pointer transition-colors truncate" :title="row.name" @click="previewFile(row)">{{ row.name }}</span>
             </div>
           </template>
           
+          <template #date="{ row }">
+             {{ row.date }}
+          </template>
+
           <template #up="{ row }">
-            <t-tag variant="light" theme="default">{{ row.up }}</t-tag>
+            <t-tag variant="light" theme="default" class="truncate max-w-full" :title="row.up">{{ row.up }}</t-tag>
           </template>
           
           <template #op="{ row }">
@@ -77,16 +81,24 @@
         leave-from-class="opacity-100 translate-y-0"
         leave-to-class="opacity-0 translate-y-10"
       >
-        <div v-if="selectedRowKeys.length > 0" class="absolute bottom-12 left-1/2 transform -translate-x-1/2 z-50">
+        <div v-if="selectedRowKeys.length > 0" class="fixed bottom-12 left-1/2 transform -translate-x-1/2 z-50">
           <div class="bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-6">
             <div class="text-sm">
               已选择 <span class="font-bold text-blue-400 text-lg mx-1">{{ selectedRowKeys.length }}</span> 项
             </div>
             <div class="h-4 w-px bg-gray-700"></div>
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
               <t-button theme="primary" size="small" :loading="batchDownloading" @click="batchDownload">
                 <template #icon><t-icon name="download" /></template>
-                下载选中文件
+                下载
+              </t-button>
+              <t-button theme="default" size="small" :loading="batchMerging" @click="batchMerge">
+                <template #icon><t-icon name="file-add" /></template>
+                合并下载
+              </t-button>
+              <t-button theme="danger" size="small" @click="batchDelete">
+                <template #icon><t-icon name="delete" /></template>
+                删除
               </t-button>
               <t-button theme="danger" variant="text" size="small" @click="clearSelection">
                 取消
@@ -130,6 +142,7 @@ const route = useRoute()
 
 const selectedRowKeys = ref([])
 const batchDownloading = ref(false)
+const batchMerging = ref(false)
 const selectionMode = ref('multiple')
 
 const previewVisible = ref(false)
@@ -172,19 +185,24 @@ const columns = computed(() => [
     },
   },
   { colKey: 'name', title: '文件名', width: '40%', ellipsis: true },
-  { colKey: 'up', title: 'UP 主', width: '20%' },
-  { colKey: 'date', title: '创建日期', width: '20%', sorter: true },
-  { colKey: 'op', title: '操作', width: '20%', align: 'right', fixed: 'right' },
+  { colKey: 'date', title: '上传日期', width: '20%', sorter: true },
+  { colKey: 'up', title: 'UP 主', width: '30%' },
+  { colKey: 'op', title: '操作', width: '140', align: 'right', fixed: 'right' },
 ])
 
-const pagination = {
+const pagination = computed(() => ({
   defaultPageSize: 10,
   totalContent: false,
-  showJumper: true
-}
+  showJumper: true,
+  total: filteredFiles.value.length
+}))
 
 const upOptions = computed(() => {
-  return upList.value.map(up => ({ label: up, value: up }))
+  // 从文件列表动态提取 UP 主列表，确保选项真实存在
+  const ups = new Set(files.value.map(f => f.up).filter(Boolean))
+  // 如果有后端返回的 upList，也合并进去
+  upList.value.forEach(up => ups.add(up))
+  return Array.from(ups).map(up => ({ label: up, value: up }))
 })
 
 // 计算属性：过滤后的文件
@@ -284,6 +302,71 @@ const batchDownload = async () => {
   } finally {
     batchDownloading.value = false
   }
+}
+
+const batchMerge = async () => {
+  if (selectedRowKeys.value.length === 0) return
+  
+  batchMerging.value = true
+  try {
+    const response = await http.post(
+      '/api/files/batch-merge', 
+      { files: selectedRowKeys.value },
+      { responseType: 'blob' }
+    )
+    
+    const blob = new Blob([response.data], { type: 'text/markdown' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    
+    let filename = 'bilivox_merged.md'
+    const disposition = response.headers['content-disposition']
+    if (disposition && disposition.indexOf('attachment') !== -1) {
+      const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/
+      const matches = filenameRegex.exec(disposition)
+      if (matches != null && matches[1]) { 
+        filename = matches[1].replace(/['"]/g, '')
+      }
+    }
+    
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    
+    MessagePlugin.success('合并下载已开始')
+    clearSelection()
+  } catch (error) {
+    MessagePlugin.error(error?.userMessage || '合并下载失败')
+  } finally {
+    batchMerging.value = false
+  }
+}
+
+const batchDelete = async () => {
+  if (selectedRowKeys.value.length === 0) return
+  
+  const instance = DialogPlugin.confirm({
+    header: '确认批量删除',
+    body: `确定要删除选中的 ${selectedRowKeys.value.length} 个文件吗？\n此操作不可恢复。`,
+    confirmBtn: { theme: 'danger', content: '确认删除' },
+    cancelBtn: '取消',
+    onConfirm: async () => {
+      try {
+        const response = await http.post('/api/files/batch-delete', { files: selectedRowKeys.value })
+        MessagePlugin.success(response.data.message || '删除成功')
+        clearSelection()
+        await fetchFiles()
+      } catch (error) {
+        MessagePlugin.error(error?.userMessage || '批量删除失败')
+      } finally {
+        instance.destroy()
+      }
+    },
+    onClose: () => instance.destroy(),
+  })
 }
 
 const previewFile = async (row) => {

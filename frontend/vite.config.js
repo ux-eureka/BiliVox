@@ -5,12 +5,12 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   server: {
-    port: 10086,
-    strictPort: true,
+    port: 5173, // 前端开发服务器端口，与后端分开
+    strictPort: false,
     open: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:10086', // 统一后端端口为 10086
         changeOrigin: true,
         secure: false
       }

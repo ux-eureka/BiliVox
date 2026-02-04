@@ -4,15 +4,15 @@
     <div class="main-content flex flex-col gap-6 min-w-0">
       <!-- 欢迎卡片 -->
       <t-card :bordered="false" class="rounded-lg overflow-hidden bg-gradient-to-r from-blue-600 to-blue-500 text-white relative shadow-ui">
-        <div class="absolute right-0 top-0 h-full w-1/2 bg-[url('https://cdn.vuetifyjs.com/images/parallax/material.jpg')] bg-cover opacity-10 mix-blend-overlay z-0"></div>
+        <!-- <div class="absolute right-0 top-0 h-full w-1/2 bg-[url('https://cdn.vuetifyjs.com/images/parallax/material.jpg')] bg-cover opacity-10 mix-blend-overlay z-0"></div> -->
         <div class="relative z-10 p-2">
           <t-row align="middle" justify="space-between">
-            <t-col :span="8" :xs="24" :sm="12">
+            <t-col :span="6" :xs="24" :sm="8">
               <h1 class="text-3xl font-bold mb-2">控制面板</h1>
               <p class="text-blue-100 text-lg opacity-90">欢迎回来，系统运行正常。</p>
             </t-col>
-            <t-col :span="4" :xs="24" :sm="12" class="flex flex-col sm:flex-row items-stretch gap-3 justify-end mt-4 sm:mt-0">
-              <div class="w-full sm:w-[320px]">
+            <t-col :span="18" :xs="24" :sm="16" class="flex flex-col sm:flex-row items-stretch gap-3 justify-end mt-4 sm:mt-0 h-full">
+              <div class="flex-1 w-full flex items-center" style="min-width: 0;">
                 <t-input
                   ref="linkInputRef"
                   v-model="linkInput"
@@ -20,23 +20,10 @@
                   :status="linkInputStatus"
                   :tips="linkInputTips"
                   @enter="recognizeLinks"
+                  style="width: 100%; min-width: 100%;"
                 >
                   <template #prefix-icon>
                     <t-icon name="link" />
-                  </template>
-                  <template #suffix>
-                    <t-button
-                      theme="primary"
-                      variant="text"
-                      shape="square"
-                      :loading="recognizing"
-                      :disabled="!hasValidLinkInput || recognizing"
-                      aria-label="解析链接"
-                      @click="recognizeLinks"
-                      style="margin-right: -8px;"
-                    >
-                      <template #icon><t-icon name="search" /></template>
-                    </t-button>
                   </template>
                 </t-input>
               </div>
@@ -45,17 +32,6 @@
                 刷新状态
               </t-button>
               <t-button
-                theme="default"
-                variant="base"
-                :loading="diagnosticsRunning"
-                :disabled="status === '运行中' || diagnosticsRunning"
-                @click="startDiagnostics"
-              >
-                <template #icon><t-icon name="bug" /></template>
-                一键回归
-              </t-button>
-              <t-button
-                v-if="status !== '运行中'"
                 theme="primary"
                 variant="base"
                 class="bg-white/20 border-white/30 text-white hover:bg-white/30"
@@ -66,7 +42,7 @@
                 <template #icon><t-icon name="search" /></template>
                 解析链接
               </t-button>
-              <t-button v-else theme="danger" variant="base" @click="stopProcess">
+              <t-button v-if="status === '运行中'" theme="danger" variant="base" @click="stopProcess">
                 <template #icon><t-icon name="stop-circle" /></template>
                 停止任务
               </t-button>
@@ -201,12 +177,18 @@
               <div class="flex items-start gap-3">
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2">
-                    <div class="text-sm font-bold text-gray-900 truncate" :title="task.url">{{ task.displayText || task.url }}</div>
+                    <!-- 优先显示 displayText (任务名/标题)，如果未定义才显示 URL -->
+                    <div class="text-sm font-bold text-gray-900 truncate" :title="task.name || task.displayText || task.url">
+                      {{ task.name || task.displayText || task.url }}
+                    </div>
                     <t-icon v-if="task.status === 'running'" name="loading" class="text-gray-400 animate-spin" />
                     <t-tag size="small" variant="light" :theme="statusTheme(task.status)">{{ statusLabel(task.status) }}</t-tag>
                   </div>
                   <div class="mt-1 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
-                    <span class="truncate" :title="task.name">UP：{{ truncate(task.name, 16) }}</span>
+                    <span class="truncate" :title="task.type === 'video' ? task.url : task.name">
+                       <!-- 如果是单视频，第二行显示 BV 号或 URL；如果是 UP 主任务，显示 UP 主名称 -->
+                      {{ task.type === 'video' ? (task.id.startsWith('video::') ? task.id.split('::')[1] : task.url) : `UP：${truncate(task.name, 16)}` }}
+                    </span>
                     <span v-if="task.videoCount">视频数：{{ task.videoCount }}</span>
                     <span v-if="task.totalSeconds">合计：{{ formatHms(task.totalSeconds) }}</span>
                   </div>
@@ -310,7 +292,14 @@ const linkInputTips = ref('')
 const recognizing = ref(false)
 const linkInputRef = ref(null)
 
-const hasValidLinkInput = computed(() => extractBilibiliSpaceUrls(linkInput.value).length > 0)
+const hasValidLinkInput = computed(() => {
+  // 同时检查 UP 主主页链接和视频链接 (BV号)
+  const upUrls = extractBilibiliSpaceUrls(linkInput.value)
+  if (upUrls.length > 0) return true
+  
+  const videoItems = extractBilibiliVideoItems(linkInput.value)
+  return videoItems.length > 0
+})
 
 const formatHms = (totalSeconds) => {
   const s = Math.max(0, Math.floor(Number(totalSeconds) || 0))
@@ -410,55 +399,102 @@ const recognizeLinks = async () => {
     return
   }
 
-  const urls = extractBilibiliSpaceUrls(raw)
-  if (urls.length === 0) {
-    linkInputStatus.value = 'error'
-    linkInputTips.value = '请输入有效的 B 站 UP 主主页链接或 UID'
-    MessagePlugin.error('未识别到可用链接')
-    await focusLinkInput()
-    return
-  }
+  const urls = extractBilibiliSpaceUrls(raw) // 提取 UP 主链接
 
-  recognizing.value = true
-  linkInputStatus.value = 'default'
-  linkInputTips.value = ''
+  if (urls.length > 0) {
+    // 优先处理 UP 主主页链接
+    recognizing.value = true
+    linkInputStatus.value = 'default'
+    linkInputTips.value = ''
 
-  taskStore.clearTasks()
-  let successCount = 0
-  let lastErrorMessage = ''
-  try {
-    for (const url of urls) {
-      try {
-        const response = await http.get('/api/up_info', { params: { url } })
-        const uid = response.data?.uid
-        const videosResp = await http.get('/api/videos', { params: { uid } })
-        const videos = Array.isArray(videosResp.data?.videos) ? videosResp.data.videos : []
-        taskStore.addUpTaskFromUpVideos(response.data, url, videos)
-        successCount += 1
-      } catch (e) {
-        lastErrorMessage = e?.userMessage || e?.message || lastErrorMessage
-        continue
+    let successCount = 0
+    let lastErrorMessage = ''
+    try {
+      for (const url of urls) {
+        try {
+          const response = await http.get('/api/up_info', { params: { url } })
+          const uid = response.data?.uid
+          const videosResp = await http.get('/api/videos', { params: { uid } })
+          const videos = Array.isArray(videosResp.data?.videos) ? videosResp.data.videos : []
+          taskStore.addUpTaskFromUpVideos(response.data, url, videos)
+          successCount += 1
+        } catch (e) {
+          lastErrorMessage = e?.userMessage || e?.message || lastErrorMessage
+          continue
+        }
       }
-    }
 
-    if (successCount > 0) {
-      linkInputStatus.value = 'success'
-      linkInput.value = ''
-      MessagePlugin.success(`解析成功：已加载 ${successCount} 个 UP 任务`)
-      setTimeout(() => {
-        linkInputStatus.value = 'default'
-      }, 1500)
-      setTimeout(() => {
-        maybeAutoStartNext(true)
-      }, 0)
-    } else {
-      linkInputStatus.value = 'error'
-      linkInputTips.value = lastErrorMessage || '识别失败，请检查链接是否可访问'
-      MessagePlugin.error(linkInputTips.value)
+      if (successCount > 0) {
+        linkInputStatus.value = 'success'
+        linkInput.value = ''
+        MessagePlugin.success(`解析成功：已添加 ${successCount} 个 UP 主任务`)
+        setTimeout(() => {
+          linkInputStatus.value = 'default'
+        }, 1500)
+        setTimeout(() => {
+          maybeAutoStartNext(true)
+        }, 0)
+        return
+      }
+    } finally {
+      recognizing.value = false
     }
-  } finally {
-    recognizing.value = false
   }
+
+  // 如果没有识别到 UP 主链接，尝试识别单个视频链接
+  const videoItems = extractBilibiliVideoItems(raw)
+  if (videoItems.length > 0) {
+    recognizing.value = true
+    linkInputStatus.value = 'default'
+    linkInputTips.value = ''
+    
+    let successCount = 0
+    try {
+      for (const item of videoItems) {
+        let title = `视频 ${item.bvId}`
+        let duration = 0
+        let uploadDate = null
+        try {
+           const metaResp = await http.get('/api/video_meta', { params: { bvid: item.bvId } })
+           if (metaResp.data?.title) {
+             title = metaResp.data.title
+             duration = metaResp.data.duration || 0
+           }
+        } catch (e) {
+           console.warn('获取视频详情失败，将使用默认信息', e)
+        }
+        
+        taskStore.addVideoTask({
+          bvId: item.bvId,
+          title: title,
+          url: item.url,
+          duration: duration,
+        }, item.url)
+        successCount += 1
+      }
+      
+      if (successCount > 0) {
+        linkInputStatus.value = 'success'
+        linkInput.value = ''
+        MessagePlugin.success(`解析成功：已添加 ${successCount} 个视频任务`)
+        setTimeout(() => {
+          linkInputStatus.value = 'default'
+        }, 1500)
+        setTimeout(() => {
+          maybeAutoStartNext(true)
+        }, 0)
+        return
+      }
+    } finally {
+      recognizing.value = false
+    }
+  }
+
+  // 既不是 UP 主也不是视频链接
+  linkInputStatus.value = 'error'
+  linkInputTips.value = '请输入有效的 B 站 UP 主主页链接、UID 或视频链接'
+  MessagePlugin.error('未识别到可用链接')
+  await focusLinkInput()
 }
 
 const confirmCancelTask = (task) => {
@@ -543,9 +579,6 @@ const downloadTaskDoc = async (task) => {
 
 const currentTaskId = ref(null)
 const autoStarting = ref(false)
-const diagnosticsRunning = ref(false)
-const diagnosticsTaskId = ref(null)
-let diagnosticsPollInterval = null
 
 const taskProgress = (task) => {
   if (task?.status === 'done') return 100
@@ -578,7 +611,28 @@ const maybeMarkOrphanRunningAsFailed = () => {
 
 const startTaskBackend = async (task, force, silent) => {
   try {
-    await http.post('/api/task/start', { taskId: task.id, name: task.name, uid: task.uid, force: !!force })
+    if (task.type === 'video') {
+      const videoInfo = task.extra || {}
+      // 构造视频任务请求
+      const payload = {
+        taskId: task.id,
+        upName: '独立视频', // 单视频任务默认存放目录
+        force: !!force,
+        video: {
+          bvId: videoInfo.bvId || (task.id.startsWith('video::') ? task.id.split('::')[1] : ''),
+          title: task.name,
+          url: task.sourceUrl,
+          uploadDate: videoInfo.uploadDate || null,
+          duration: task.totalSeconds || null,
+          uploader: videoInfo.uploader || null // 传递 UP 主名称
+        }
+      }
+      await http.post('/api/video/start', payload)
+    } else {
+      // UP 主任务请求
+      await http.post('/api/task/start', { taskId: task.id, name: task.name, uid: task.uid, force: !!force })
+    }
+    
     taskStore.startTask(task.id)
     if (!silent) MessagePlugin.success(force ? '已开始重新处理' : '已开始处理')
     return true
@@ -676,78 +730,6 @@ const updateStatus = async () => {
   }
 }
 
-const showDiagnosticsReport = (payload) => {
-  const record = payload?.record || null
-  const ok = record?.status === '成功'
-  const title = ok ? '一键回归通过' : '一键回归失败'
-  const lines = []
-  if (payload?.taskId) lines.push(`任务ID：${payload.taskId}`)
-  if (record?.upName) lines.push(`UP：${record.upName}`)
-  if (record?.title) lines.push(`视频：${record.title}`)
-  if (record?.status) lines.push(`结果：${record.status}`)
-  if (record?.downloadSec != null) lines.push(`下载：${record.downloadSec}s`)
-  if (record?.asrSec != null) lines.push(`转录：${record.asrSec}s`)
-  if (record?.llmSec != null) lines.push(`LLM：${record.llmSec}s`)
-  if (record?.durationSec != null) lines.push(`总耗时：${record.durationSec}s`)
-  if (record?.detail) lines.push(`详情：${record.detail}`)
-  if (record?.filePath) lines.push(`产物：${record.filePath}`)
-
-  const instance = DialogPlugin.confirm({
-    header: title,
-    body: lines.join('\n') || '无更多信息',
-    confirmBtn: '关闭',
-    cancelBtn: null,
-    onConfirm: () => instance.destroy(),
-    onClose: () => instance.destroy(),
-  })
-}
-
-const pollDiagnostics = async () => {
-  const tid = diagnosticsTaskId.value
-  if (!tid) return
-  try {
-    const resp = await http.get('/api/diagnostics/report', { params: { taskId: tid } })
-    const done = !!resp.data?.done
-    if (!done) return
-    diagnosticsRunning.value = false
-    if (diagnosticsPollInterval) {
-      clearInterval(diagnosticsPollInterval)
-      diagnosticsPollInterval = null
-    }
-    showDiagnosticsReport(resp.data)
-  } catch (e) {
-    diagnosticsRunning.value = false
-    if (diagnosticsPollInterval) {
-      clearInterval(diagnosticsPollInterval)
-      diagnosticsPollInterval = null
-    }
-    MessagePlugin.error(e?.userMessage || '获取回归报告失败')
-  }
-}
-
-const startDiagnostics = async () => {
-  if (diagnosticsRunning.value) return
-  if (status.value === '运行中') {
-    MessagePlugin.warning('后台正在运行任务，请先等待完成或停止任务')
-    return
-  }
-  diagnosticsRunning.value = true
-  diagnosticsTaskId.value = null
-  try {
-    const firstUp = taskStore.tasks.find(t => t && t.type === 'up' && t.uid && t.name)
-    const payload = firstUp ? { uid: String(firstUp.uid), upName: firstUp.name, force: true } : {}
-    const resp = await http.post('/api/diagnostics/start', payload)
-    diagnosticsTaskId.value = resp.data?.taskId
-    const bv = resp.data?.bvId
-    MessagePlugin.success(bv ? `已启动一键回归：${bv}` : '已启动一键回归')
-    if (diagnosticsPollInterval) clearInterval(diagnosticsPollInterval)
-    diagnosticsPollInterval = setInterval(pollDiagnostics, 1500)
-  } catch (e) {
-    diagnosticsRunning.value = false
-    MessagePlugin.error(e?.userMessage || '启动一键回归失败')
-  }
-}
-
 const goHistory = () => {
   router.push('/history')
 }
@@ -789,9 +771,6 @@ onMounted(() => {
 onUnmounted(() => {
   if (statusPollInterval) {
     clearInterval(statusPollInterval)
-  }
-  if (diagnosticsPollInterval) {
-    clearInterval(diagnosticsPollInterval)
   }
 })
 </script>

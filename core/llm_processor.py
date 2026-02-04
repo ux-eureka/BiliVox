@@ -24,15 +24,16 @@ class BiliLLMProcessor:
         self.disabled_reason = None
         
         # 初始化OpenAI客户端
-        api_key = (os.getenv('OPENAI_API_KEY') or '').strip()
-        base_url = os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1')
-        model_name = os.getenv('MODEL_NAME', 'gpt-4o-mini')
+        api_key = str(llm_cfg.get('api_key') or os.getenv('OPENAI_API_KEY') or '').strip()
+        base_url = str(llm_cfg.get('api_base_url') or os.getenv('OPENAI_BASE_URL') or 'https://api.openai.com/v1').strip()
+        model_name = str(llm_cfg.get('model_name') or os.getenv('MODEL_NAME') or 'gpt-4o-mini').strip()
 
-        base_url = (base_url or '').strip()
         if base_url.endswith('/'):
             base_url = base_url[:-1]
-        if base_url and not base_url.endswith('/v1'):
-            base_url = base_url + '/v1'
+        if base_url and not base_url.endswith('/v1') and 'openai.com' in base_url:
+             # OpenAI 官方或兼容接口通常需要 /v1，但有些自定义接口可能不需要
+             # 这里保留原有逻辑，但加上条件防止破坏非 /v1 结尾的自定义 URL
+             base_url = base_url + '/v1'
         
         self.model_name = model_name
         self.client = None
@@ -40,7 +41,7 @@ class BiliLLMProcessor:
             self.disabled_reason = "LLM 已禁用"
             return
         if not api_key:
-            self.disabled_reason = "未配置 OPENAI_API_KEY，将仅输出原始转录文本"
+            self.disabled_reason = "未配置 API Key，将仅输出原始转录文本"
             return
 
         try:
@@ -153,12 +154,25 @@ class BiliLLMProcessor:
         ]
         if bv:
             frontmatter_lines.append(f"bvid: {bv}")
+            frontmatter_lines.append(f"bv: {bv}") # 冗余一个 bv 字段以兼容
         if upload_date:
             frontmatter_lines.append(f"upload_date: {upload_date}")
         if isinstance(duration, (int, float)) and duration:
             frontmatter_lines.append(f"duration_sec: {int(duration)}")
         if url:
             frontmatter_lines.append(f"url: {url}")
+        
+        # 尝试从 video_info 中获取 uid 和 author
+        uid = str(video_info.get('uid', '') or '').strip()
+        if not uid and video_info.get('owner_id'):
+             uid = str(video_info.get('owner_id')).strip()
+        if uid:
+            frontmatter_lines.append(f"uid: {uid}")
+            
+        author = str(video_info.get('uploader') or video_info.get('owner') or '').strip()
+        if author:
+            frontmatter_lines.append(f"author: {author}")
+
         if reason:
             frontmatter_lines.append(f"llm: disabled ({reason})")
         frontmatter_lines.append("---")

@@ -101,6 +101,50 @@ export const useTaskStore = defineStore('task', () => {
     return task.id
   }
 
+  const addVideoTask = (videoInfo, sourceUrl) => {
+    const now = Date.now()
+    const bvId = String(videoInfo?.bvId || videoInfo?.bvid || '').trim()
+    const title = String(videoInfo?.title || '').trim()
+    const duration = Number.isFinite(videoInfo?.duration) ? Number(videoInfo.duration) : 0
+    
+    // 估算时长
+    let totalSeconds = duration
+    let estimated = false
+    if (totalSeconds <= 0) {
+      totalSeconds = estimateVideoSeconds({ bvId, title })
+      estimated = true
+    }
+
+    const id = bvId ? `video::${bvId}` : `video::manual::${now}`
+    // 直接返回 task.id
+    const task = {
+      id,
+      type: 'video',
+      sourceUrl: sourceUrl || '',
+      uid: '', // 单视频任务不绑定特定 UID 列表，或者后续可补充 UP 信息
+      name: title || bvId || '未知视频',
+      videoCount: 1,
+      totalSeconds: Math.max(0, totalSeconds),
+      processedSeconds: 0,
+      status: 'waiting',
+      lastOutputPath: '',
+      lastOutputName: '',
+      lastOutputAt: null,
+      durationEstimated: estimated,
+      lastError: '',
+      failCount: 0,
+      failedAt: null,
+      createdAt: now,
+      firstStartedAt: null,
+      lastStartedAt: null,
+      lastTickAt: null,
+      // 保存完整的视频信息以便后端使用
+      extra: { ...videoInfo } 
+    }
+    addOrReplaceTask(task)
+    return id
+  }
+
   const addUpTaskFromUpVideos = (upInfo, sourceUrl, videos) => {
     const now = Date.now()
     const uid = String(upInfo?.uid ?? '').trim()
@@ -119,7 +163,8 @@ export const useTaskStore = defineStore('task', () => {
     }
 
     const id = uid ? `up::${uid}` : `up::manual::${now}`
-    return addOrReplaceTask({
+    // 直接返回 task.id
+    const task = {
       id,
       type: 'up',
       sourceUrl: sourceUrl || '',
@@ -140,7 +185,9 @@ export const useTaskStore = defineStore('task', () => {
       firstStartedAt: null,
       lastStartedAt: null,
       lastTickAt: null,
-    })
+    }
+    addOrReplaceTask(task)
+    return id
   }
 
   const removeTask = (id) => {
@@ -261,6 +308,7 @@ export const useTaskStore = defineStore('task', () => {
 
   return {
     tasks,
+    addVideoTask,
     addUpTaskFromUpVideos,
     removeTask,
     clearTasks,

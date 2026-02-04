@@ -10,6 +10,7 @@ from datetime import datetime
 # 导入BiliVox核心模块
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from dotenv import load_dotenv
 from core.downloader import BiliDownloader
 from core.transcriber import BiliTranscriber
 from core.llm_processor import BiliLLMProcessor
@@ -29,8 +30,10 @@ class BiliVoxManager:
         self.output_dir = os.path.join(repo_root, 'output')
         self.monitor_state_path = os.path.join(repo_root, 'monitor_state.json')
         self._monitor_lock = threading.Lock()
-        self.last_diagnostics_task_id = None
         
+        # 加载环境变量
+        load_dotenv()
+
         # 加载配置
         self.load_config()
         
@@ -142,15 +145,28 @@ class BiliVoxManager:
         title = video.get("title") or ""
         bv_id = video.get("bv_id") or video.get("id") or ""
         url = video.get("url") or ""
+        author = video.get("uploader") or video.get("owner") or ""
+        uid = video.get("uid") or video.get("owner_id") or ""
+        upload_date = video.get("upload_date") or ""
+
         frontmatter = [
             "---",
             f"title: {title}",
             f"bv: {bv_id}",
             f"url: {url}",
+        ]
+        if author:
+            frontmatter.append(f"author: {author}")
+        if uid:
+            frontmatter.append(f"uid: {uid}")
+        if upload_date:
+            frontmatter.append(f"upload_date: {upload_date}")
+            
+        frontmatter.extend([
             "source: bibigpt",
             "---",
             "",
-        ]
+        ])
         return "\n".join(frontmatter) + summary.strip() + "\n"
 
     def _summarize_with_bibigpt(self, url: str, video: Dict[str, Any], progress_fn, max_wait_sec: float = 1800.0) -> tuple[str, int]:
@@ -206,6 +222,29 @@ class BiliVoxManager:
                 self.config['pipeline'] = {'mode': 'local'}
             else:
                 self.config['pipeline'].setdefault('mode', 'local')
+            
+            # Ensure LLM config has defaults (especially from env)
+            if 'llm' not in self.config or not isinstance(self.config.get('llm'), dict):
+                self.config['llm'] = {}
+            
+            llm_defaults = {
+                'enabled': True,
+                'api_base_url': os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+                'api_key': os.getenv('OPENAI_API_KEY', ''),
+                'model_name': os.getenv('MODEL_NAME', 'gpt-4o-mini'),
+                'system_prompt': '你是一个知识库整理专家。请忽略口语废话（如求三连、开场白），提取视频核心逻辑、关键论据和数据。输出格式为 Markdown，包含 Frontmatter（元数据）。',
+                'temperature': 0.3,
+                'max_tokens': 4096,
+                'preset_id': None
+            }
+            for k, v in llm_defaults.items():
+                if k not in self.config['llm']:
+                    self.config['llm'][k] = v
+            
+            # Initialize presets
+            if 'llm_presets' not in self.config or not isinstance(self.config.get('llm_presets'), list):
+                self.config['llm_presets'] = []
+                
         except Exception as e:
             # 使用默认配置
             self.config = {
@@ -232,9 +271,13 @@ class BiliVoxManager:
                 },
                 'llm': {
                     'enabled': True,
+                    'api_base_url': os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+                    'api_key': os.getenv('OPENAI_API_KEY', ''),
+                    'model_name': os.getenv('MODEL_NAME', 'gpt-4o-mini'),
                     'system_prompt': '你是一个知识库整理专家。请忽略口语废话（如求三连、开场白），提取视频核心逻辑、关键论据和数据。输出格式为 Markdown，包含 Frontmatter（元数据）。',
                     'temperature': 0.3,
-                    'max_tokens': 4096
+                    'max_tokens': 4096,
+                    'preset_id': None
                 }
             }
     
@@ -329,6 +372,93 @@ class BiliVoxManager:
         # 重新初始化BiliVox模块
         self.init_bilivox()
     
+    def get_llm_presets(self):
+        """获取LLM配置预设列表"""
+        return self.config.get('llm_presets', [])
+
+    def add_llm_preset(self, preset):
+        """添加LLM配置预设"""
+        if 'llm_presets' not in self.config:
+            self.config['llm_presets'] = []
+        
+        import uuid
+        if not preset.get('id'):
+            preset['id'] = str(uuid.uuid4())
+            
+        # 简单查重：名字不能完全一样
+        for p in self.config['llm_presets']:
+            if p.get('name') == preset.get('name'):
+                raise Exception(f"预设名称 '{preset.get('name')}' 已存在")
+
+        self.config['llm_presets'].append(preset)
+        self.save_config()
+        return preset
+
+    def update_llm_preset(self, preset_id, preset_data):
+        """更新LLM配置预设"""
+        presets = self.config.get('llm_presets', [])
+        found = False
+        for i, p in enumerate(presets):
+            if p.get('id') == preset_id:
+                # 检查名字冲突 (排除自己)
+                new_name = preset_data.get('name')
+                if new_name:
+                    for other in presets:
+                        if other.get('id') != preset_id and other.get('name') == new_name:
+                             raise Exception(f"预设名称 '{new_name}' 已存在")
+
+                presets[i].update(preset_data)
+                found = True
+                break
+        
+        if not found:
+            raise Exception("未找到指定预设")
+            
+        self.save_config()
+        return presets[i]
+
+    def delete_llm_preset(self, preset_id):
+        """删除LLM配置预设"""
+        presets = self.config.get('llm_presets', [])
+        new_presets = [p for p in presets if p.get('id') != preset_id]
+        if len(new_presets) == len(presets):
+             raise Exception("未找到指定预设")
+        self.config['llm_presets'] = new_presets
+        self.save_config()
+        return True
+
+    def batch_import_presets(self, presets_list):
+        """批量导入预设"""
+        if not isinstance(presets_list, list):
+             raise Exception("导入数据格式错误")
+        
+        if 'llm_presets' not in self.config:
+            self.config['llm_presets'] = []
+            
+        import uuid
+        count = 0
+        for p in presets_list:
+            if not isinstance(p, dict) or not p.get('name'):
+                continue
+            
+            # 如果没有ID或ID冲突，生成新ID
+            p_id = p.get('id')
+            if not p_id or any(existing.get('id') == p_id for existing in self.config['llm_presets']):
+                p['id'] = str(uuid.uuid4())
+            
+            # 名字冲突处理：自动重命名
+            original_name = p['name']
+            counter = 1
+            while any(existing.get('name') == p['name'] for existing in self.config['llm_presets']):
+                p['name'] = f"{original_name} ({counter})"
+                counter += 1
+            
+            self.config['llm_presets'].append(p)
+            count += 1
+            
+        self.save_config()
+        return count
+
     def start_processing(self):
         """开始处理任务"""
         if self.status == '运行中':
@@ -460,6 +590,32 @@ class BiliVoxManager:
                         self.current_title = title
                         self._log(f'开始处理视频: {title}（BV: {bv_id}）')
                         self._set_progress(processed_up, total_up, processed_videos, total_videos, 0.02)
+
+                        # 确保有 upload_date 和有效的 title
+                        # 如果 title 为 '未知' 或与 BV 号相同（yt-dlp 有时会这样），或者是空，则尝试获取 meta
+                        current_title = video.get('title', '')
+                        current_date = video.get('upload_date', '')
+                        
+                        need_meta = False
+                        if not current_date:
+                            need_meta = True
+                        if not current_title or current_title == '未知' or current_title == bv_id:
+                            need_meta = True
+                            
+                        if need_meta:
+                            try:
+                                meta = self.downloader.get_video_meta(bv_id)
+                                if meta:
+                                    if meta.get('upload_date'):
+                                        video['upload_date'] = meta['upload_date']
+                                    if meta.get('title'):
+                                        video['title'] = meta['title']
+                                        self.current_title = meta['title']
+                                        title = meta['title'] # 更新局部变量
+                                    if meta.get('tags'):
+                                        video['tags'] = meta['tags']
+                            except Exception:
+                                pass
 
                         if self._get_pipeline_mode() == "bibigpt":
                             t0 = time.time()
@@ -648,6 +804,38 @@ class BiliVoxManager:
                 self.current_title = None
                 return
 
+            # 尝试获取真实的 UP 主名称和 UID
+            real_up_name = up_name
+            real_uid = None
+            try:
+                # 如果是独立视频且 UP 名为通用名，尝试解析
+                if up_name in ['独立视频', '未知UP']:
+                    video_url = video.get('url')
+                    if video_url:
+                        # 尝试从视频页获取 UP 信息 (需要 downloader 支持 get_video_info)
+                        # 这里简单起见，我们假设 downloader.get_video_meta 能返回 owner 信息
+                        meta = self.downloader.get_video_meta(video.get('bv_id'))
+                        if meta:
+                            real_up_name = meta.get('owner_name') or meta.get('uploader') or meta.get('owner') or up_name
+                            real_uid = meta.get('owner_id') or meta.get('mid') or meta.get('uid')
+                            
+                            # 关键修复：确保 video 对象中包含最新的元数据，以便 _save_markdown 写入 Frontmatter
+                            if real_up_name:
+                                video['uploader'] = real_up_name
+                                video['owner'] = real_up_name
+                            if real_uid:
+                                video['uid'] = str(real_uid)
+                                video['owner_id'] = str(real_uid)
+                            if meta.get('upload_date'):
+                                video['upload_date'] = meta.get('upload_date')
+                            
+                            # 如果获取到了真实信息，更新输出目录
+                            if real_up_name and real_up_name != up_name:
+                                self._log(f'识别到 UP 主: {real_up_name} (UID: {real_uid})')
+                                up_name = real_up_name
+            except Exception as e:
+                self._log(f'获取 UP 主信息失败: {e}')
+
             if not force and not self._should_process_video(video, up_name):
                 existing = self._find_existing_markdown_for_video(video, up_name)
                 if existing:
@@ -813,11 +1001,23 @@ class BiliVoxManager:
     def _save_markdown(self, video, content, up_name, task_id: str | None = None):
         """保存Markdown文件"""
         try:
+            # 优先使用视频信息中的 UP 主名称作为目录名（如果它有效且不是“独立视频”）
+            # 但为了保持目录结构整洁，我们还是遵循传入的 up_name（通常是配置好的监控目标或“独立视频”）
+            # 真正的 UP 主名称写入 Frontmatter
+            
             up_output_dir = os.path.join(self.output_dir, up_name)
             os.makedirs(up_output_dir, exist_ok=True)
             
             upload_date = video.get('upload_date', '')
             title = video.get('title', '')
+            bv_id = video.get('bv_id', '')
+            url = video.get('url', '')
+            # 优先使用 video 中的 uploader，其次是传入的 up_name (可能是目录名)
+            real_author = video.get('uploader') or video.get('owner')
+            if not real_author and up_name not in ['独立视频', '未知UP']:
+                real_author = up_name
+            
+            uid = video.get('uid') or video.get('owner_id') or video.get('mid')
             
             # 清理文件名
             safe_title = ''.join(c for c in title if c not in '\\/:*?"<>|')
@@ -828,13 +1028,47 @@ class BiliVoxManager:
                     date_str = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:]}"
                 else:
                     date_str = upload_date
-                filename = f"[{date_str}] {safe_title}.md"
+                # 命名格式：视频标题_上传日期_BV号.md (用户要求：VideoTitle_UploadDate_BVId)
+                filename = f"{safe_title}_{date_str}_{bv_id}.md"
             else:
-                filename = f"{safe_title}.md"
+                filename = f"{safe_title}_{bv_id}.md"
             
+            # 处理 Frontmatter
+            # 1. 移除内容中现有的 Frontmatter
+            clean_content = content.strip()
+            if clean_content.startswith('---'):
+                try:
+                    # 找第二个 ---
+                    parts = clean_content.split('---', 2)
+                    if len(parts) >= 3:
+                        clean_content = parts[2].strip()
+                except Exception:
+                    pass
+
+            # 2. 构建新的 Frontmatter
+            frontmatter_lines = ["---"]
+            if title: frontmatter_lines.append(f"title: {title}")
+            if bv_id: frontmatter_lines.append(f"bv: {bv_id}")
+            if url: frontmatter_lines.append(f"url: {url}")
+            if real_author: frontmatter_lines.append(f"author: {real_author}")
+            if uid: frontmatter_lines.append(f"uid: {uid}")
+            if upload_date: frontmatter_lines.append(f"upload_date: {upload_date}")
+            
+            # 添加 tags
+            tags = video.get('tags')
+            if tags and isinstance(tags, list):
+                frontmatter_lines.append("tags:")
+                for t in tags:
+                    frontmatter_lines.append(f"  - {t}")
+            
+            frontmatter_lines.append("---")
+            frontmatter_lines.append("")
+            
+            final_content = "\n".join(frontmatter_lines) + clean_content
+
             file_path = os.path.join(up_output_dir, filename)
             with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+                f.write(final_content)
 
             relpath = os.path.join(up_name, filename)
             self.last_saved_task_id = task_id
@@ -1119,95 +1353,6 @@ class BiliVoxManager:
             },
         }
 
-    def start_diagnostics(self, uid: str | None = None, up_name: str | None = None, force: bool = True):
-        if self.status == '运行中':
-            raise Exception('系统正忙：已有任务在运行')
-
-        selected_uid = str(uid or "").strip()
-        selected_up_name = str(up_name or "").strip()
-        if not selected_uid:
-            up_list = self.config.get("up_list", []) if isinstance(self.config, dict) else []
-            if not up_list:
-                raise Exception("未配置 UP 列表：请先在配置中心添加一个 UP")
-            for item in up_list:
-                item = item or {}
-                candidate_uid = str(item.get("uid") or "").strip()
-                if not candidate_uid:
-                    continue
-                try:
-                    raw = self.downloader.get_video_list(candidate_uid)
-                except Exception:
-                    continue
-                if raw:
-                    selected_uid = candidate_uid
-                    selected_up_name = str(item.get("name") or "").strip()
-                    break
-        if not selected_uid:
-            raise Exception("无效的 UID")
-
-        if not selected_up_name:
-            selected_up_name = f"UID_{selected_uid}"
-
-        raw = self.downloader.get_video_list(selected_uid)
-        if not raw:
-            raise Exception("获取视频列表失败：请检查 UID / Cookie 配置 / 网络")
-
-        video = raw[0]
-        bv_id = video.get("bv_id") or video.get("id") or ""
-        title = video.get("title") or bv_id or "未知"
-        url = video.get("url") or ""
-        if url and not str(url).startswith("http") and bv_id:
-            url = f"https://www.bilibili.com/video/{bv_id}"
-        if not url and bv_id:
-            url = f"https://www.bilibili.com/video/{bv_id}"
-
-        import uuid
-        task_id = f"diagnostics-{uuid.uuid4().hex[:12]}"
-        self.last_diagnostics_task_id = task_id
-
-        payload_video = {
-            "bv_id": bv_id,
-            "title": title,
-            "url": url,
-            "upload_date": video.get("upload_date"),
-            "duration": video.get("duration"),
-        }
-        self.start_processing_for_video(selected_up_name, payload_video, force=bool(force), task_id=task_id)
-
-        return {
-            "taskId": task_id,
-            "uid": selected_uid,
-            "upName": selected_up_name,
-            "bvId": bv_id,
-            "title": title,
-            "url": url,
-        }
-
-    def get_diagnostics_report(self, task_id: str | None = None):
-        tid = str(task_id or "").strip()
-        if not tid:
-            tid = str(self.last_diagnostics_task_id or "").strip()
-        if not tid:
-            raise Exception("缺少 taskId")
-
-        record = None
-        for r in reversed(self.history or []):
-            if r.get("taskId") == tid:
-                record = r
-                break
-
-        running = self.status == "运行中" and self.current_task_id == tid
-        done = bool(record) and (not running)
-
-        return {
-            "taskId": tid,
-            "running": running,
-            "done": done,
-            "record": record,
-            "status": self.status,
-            "progress": self.progress,
-        }
-
     def delete_markdown(self, path: str):
         requested = self._resolve_output_markdown_path(path)
         os.remove(requested)
@@ -1320,16 +1465,87 @@ class BiliVoxManager:
                             modified_ts = None
                         # 提取日期
                         date = '未知'
-                        if file.startswith('['):
+                        video_name = file
+                        
+                        # 解析新格式：YYYY-MM-DD_BV号.md 或 YYYY-MM-DD_视频名称.md
+                        if '_' in file and file.endswith('.md'):
+                            parts = file.split('_', 1)
+                            if len(parts) == 2 and len(parts[0]) == 10 and parts[0][4] == '-' and parts[0][7] == '-':
+                                date = parts[0]
+                                video_name = parts[1][:-3] # 去掉 .md
+                        
+                        # 兼容旧格式：[YYYY-MM-DD] 视频名称.md
+                        elif file.startswith('[') and ']' in file:
                             date_part = file.split(']')[0][1:]
                             if len(date_part) == 10:
                                 date = date_part
+                                video_name = file.split(']', 1)[1].strip()[:-3]
+
+                        # 尝试读取文件内容获取 BV 号和 UID
+                        bv_id = None
+                        uid = None
+                        title_fm = None
+                        author_fm = None
+                        try:
+                            with open(absolute_path, 'r', encoding='utf-8') as f:
+                                # 读取前20行查找 frontmatter
+                                for _ in range(20):
+                                    line = f.readline()
+                                    if not line: break
+                                    line = line.strip()
+                                    if line.startswith('bv: '):
+                                        bv_id = line[4:].strip()
+                                    elif line.startswith('bvid: '):
+                                        bv_id = line[6:].strip()
+                                    elif line.startswith('source: '):
+                                        val = line[8:].strip()
+                                        if val.startswith('BV'):
+                                            bv_id = val
+                                    elif line.startswith('uid: '): 
+                                        uid = line[5:].strip()
+                                    elif line.startswith('title: '):
+                                        title_fm = line[7:].strip()
+                                    elif line.startswith('author: '):
+                                        author_fm = line[8:].strip()
+                        except Exception:
+                            pass
+
+                        # 如果文件内容没读到 BV 号，尝试从文件名解析
+                        if not bv_id:
+                            # 匹配 "视频 BV..." 或 "..._BV..."
+                            import re
+                            # 尝试匹配 BV 号 (BV + 10位字母数字)
+                            m = re.search(r'(BV[a-zA-Z0-9]{10})', file)
+                            if m:
+                                bv_id = m.group(1)
+
+                        # 如果文件内容没读到 UID，尝试从路径或配置推断
+                        real_up_name = author_fm or item # 优先使用 Frontmatter 中的 author
+                        
+                        if real_up_name in ['未知', '未知UP']:
+                             real_up_name = item
+                        
+                        if not uid:
+                            # 尝试从 UP 目录名获取 UID
+                            # 目前目录结构是 output/UP主名称/文件.md
+                            # 我们尝试从 config 或 history 中反查 UID
+                            for u in self.config.get('up_list', []):
+                                if u.get('name') == item or u.get('name') == item.replace('UID ', ''):
+                                    uid = u.get('uid')
+                                    if not author_fm: # 如果 Frontmatter 没读到 author，尝试用 config 中的名字
+                                        real_up_name = u.get('name') or item
+                                    break
+                            if not uid and item.startswith('UID '):
+                                 uid = item[4:].strip()
                         
                         files.append({
-                            'up': item,
+                            'up': real_up_name, # 使用确认过的 UP 名称
                             'name': file,
                             'path': file_path,
                             'date': date,
+                            'videoName': bv_id or video_name, # 前端展示用，优先 BV 号
+                            'title': title_fm or video_name, # 保留标题供其他用途
+                            'uid': uid,
                             'modifiedTs': modified_ts,
                         })
         
@@ -1402,3 +1618,68 @@ class BiliVoxManager:
         filename = f"bilivox_batch_{timestamp}.zip"
         
         return zip_buffer, filename
+
+    def batch_delete_files(self, file_paths: List[str]):
+        """批量删除文件"""
+        if not file_paths:
+            raise Exception("未选择任何文件")
+
+        deleted_count = 0
+        errors = []
+        for path in file_paths:
+            try:
+                self.delete_markdown(path)
+                deleted_count += 1
+            except Exception as e:
+                errors.append(f"{path}: {str(e)}")
+        
+        return deleted_count, errors
+
+    def batch_merge_files(self, file_paths: List[str]):
+        """批量合并文件"""
+        if not file_paths:
+            raise Exception("未选择任何文件")
+        
+        # 验证所有文件路径
+        valid_files = []
+        for path in file_paths:
+            try:
+                abs_path = self._resolve_output_markdown_path(path)
+                valid_files.append(abs_path)
+            except Exception:
+                continue
+        
+        if not valid_files:
+            raise Exception("没有可合并的有效文件")
+            
+        # 开始合并
+        merged_content = []
+        
+        for abs_path in valid_files:
+            try:
+                with open(abs_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    
+                # 尝试提取文件名作为标题
+                filename = os.path.basename(abs_path)
+                title = filename
+                if filename.endswith('.md'):
+                    title = filename[:-3]
+                    
+                merged_content.append(f"# {title}\n\n{content}")
+            except Exception:
+                continue
+                
+        if not merged_content:
+            raise Exception("合并后内容为空")
+            
+        final_content = "\n\n---\n\n".join(merged_content)
+        
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"bilivox_merged_{timestamp}.md"
+        
+        # 返回内容流和文件名
+        import io
+        stream = io.BytesIO(final_content.encode('utf-8'))
+        return stream, filename
