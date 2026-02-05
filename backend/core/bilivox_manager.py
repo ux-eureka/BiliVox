@@ -2,6 +2,7 @@ import os
 import json
 import time
 import subprocess
+import queue
 from typing import List, Dict, Any, Optional
 import torch
 import threading
@@ -55,6 +56,12 @@ class BiliVoxManager:
         self.current_title = None
         self.processing_thread = None
         self.stop_event = threading.Event()
+        self.task_status = {}
+        
+        # 任务队列
+        self.task_queue = queue.Queue()
+        self.worker_thread = threading.Thread(target=self._queue_worker, daemon=True)
+        self.worker_thread.start()
         
         # 加载历史记录
         self.load_history()
@@ -459,70 +466,182 @@ class BiliVoxManager:
         self.save_config()
         return count
 
+    def _queue_worker(self):
+        """后台任务处理线程"""
+        while True:
+            try:
+                # 阻塞获取任务
+                task = self.task_queue.get()
+                
+                # 标记状态为运行中
+                self.status = '运行中'
+                self.stop_event.clear()
+                
+                # 初始化进度
+                self.progress = 0
+                
+                task_type = task.get('type')
+                task_id = task.get('task_id')
+                if task_id:
+                    self.task_status[task_id] = 'running'
+                
+                try:
+                    if task_type == 'all':
+                        self._process_task()
+                    elif task_type == 'up':
+                        self._process_task(
+                            up_list_override=task.get('up_list'),
+                            force=task.get('force'),
+                            max_videos=task.get('max_videos'),
+                            task_id=task.get('task_id')
+                        )
+                    elif task_type == 'video':
+                        self._process_single_video(
+                            up_name=task.get('up_name'),
+                            video=task.get('video'),
+                            force=task.get('force'),
+                            task_id=task.get('task_id')
+                        )
+                except Exception as e:
+                    self._log(f"任务执行出错: {e}")
+                
+                # 任务完成
+                self.task_queue.task_done()
+                
+                if task_id:
+                    if self.stop_event.is_set():
+                        self.task_status[task_id] = 'terminated'
+                        self.stop_event.clear()
+                    else:
+                        self.task_status[task_id] = 'completed'
+                
+                # 检查队列是否为空
+                if self.task_queue.empty():
+                    self.status = '空闲'
+                    self.current_task_id = None
+                    self.current_up_name = None
+                    self.current_title = None
+                    self._log('所有任务处理完成')
+                
+            except Exception as e:
+                self._log(f"Worker线程出错: {e}")
+                time.sleep(1)
+
     def start_processing(self):
         """开始处理任务"""
-        if self.status == '运行中':
-            return
-        
-        self.status = '运行中'
-        self.progress = 0
-        self.logs = []
-        self.stop_event.clear()
-        
-        # 启动处理线程
-        self.processing_thread = threading.Thread(target=self._process_task, kwargs={})
-        self.processing_thread.daemon = True
-        self.processing_thread.start()
+        self.task_queue.put({'type': 'all'})
+        self._log('已将"全部处理"任务加入队列')
 
     def start_processing_for_up(self, up: Dict[str, Any], force: bool = False, max_videos: int | None = None, task_id: str | None = None):
-        if self.status == '运行中':
-            raise Exception('系统正忙：已有任务在运行')
-
-        self.status = '运行中'
-        self.progress = 0
-        self.logs = []
-        self.stop_event.clear()
-
-        self.processing_thread = threading.Thread(
-            target=self._process_task,
-            kwargs={"up_list_override": [up], "force": force, "max_videos": max_videos, "task_id": task_id},
-        )
-        self.processing_thread.daemon = True
-        self.processing_thread.start()
+        if task_id:
+            self.task_status[task_id] = 'pending'
+        self.task_queue.put({
+            'type': 'up',
+            'up_list': [up],
+            'force': force,
+            'max_videos': max_videos,
+            'task_id': task_id
+        })
+        self._log(f'已将 UP主任务({up["name"]}) 加入队列')
 
     def start_processing_for_video(self, up_name: str, video: Dict[str, Any], force: bool = False, task_id: str | None = None):
-        if self.status == '运行中':
-            raise Exception('系统正忙：已有任务在运行')
-
-        self.status = '运行中'
-        self.progress = 0
-        self.logs = []
-        self.stop_event.clear()
-        self.current_task_id = task_id
-        self.current_up_name = up_name
-        self.current_title = video.get('title')
-
-        self.processing_thread = threading.Thread(
-            target=self._process_single_video,
-            kwargs={"up_name": up_name, "video": video, "force": force, "task_id": task_id},
-        )
-        self.processing_thread.daemon = True
-        self.processing_thread.start()
+        if task_id:
+            self.task_status[task_id] = 'pending'
+        self.task_queue.put({
+            'type': 'video',
+            'up_name': up_name,
+            'video': video,
+            'force': force,
+            'task_id': task_id
+        })
+        self._log(f'已将视频任务({video.get("title")}) 加入队列')
     
     def stop_processing(self):
         """停止处理任务"""
-        if self.status != '运行中':
-            return
-        
         self.stop_event.set()
-        if self.processing_thread:
-            self.processing_thread.join(timeout=5)
         
-        self.status = '空闲'
-        self.current_task_id = None
-        self.current_up_name = None
-        self.current_title = None
-        self._log('任务已停止')
+        # 清空队列
+        with self.task_queue.mutex:
+            self.task_queue.queue.clear()
+            
+        self._log('已发送停止信号并清空任务队列')
+
+    def _remove_pending_by_ids(self, ids: List[str]) -> int:
+        removed = 0
+        if not ids:
+            return 0
+        ids_set = set([str(i) for i in ids if i])
+        with self.task_queue.mutex:
+            next_q = queue.Queue()
+            while True:
+                try:
+                    item = self.task_queue.queue.popleft()
+                except Exception:
+                    break
+                t_id = None
+                try:
+                    t_id = item.get('task_id')
+                except Exception:
+                    t_id = None
+                if t_id and t_id in ids_set:
+                    removed += 1
+                    if t_id:
+                        self.task_status[t_id] = 'terminated'
+                    continue
+                next_q.put(item)
+            self.task_queue.queue = next_q.queue
+        return removed
+
+    def terminate_task(self, task_id: str) -> Dict[str, Any]:
+        task_id = str(task_id or '').strip()
+        if not task_id:
+            raise Exception('无效任务ID')
+        affected_pending = self._remove_pending_by_ids([task_id])
+        current_terminated = False
+        if self.current_task_id and self.current_task_id == task_id and self.status == '运行中':
+            self.stop_event.set()
+            waited = 0
+            while waited < 15:
+                if not self.current_task_id or self.current_task_id != task_id:
+                    break
+                time.sleep(0.5)
+                waited += 0.5
+            current_terminated = True
+            self.task_status[task_id] = 'terminated'
+        return {'terminated': True, 'pendingTerminated': affected_pending, 'currentTerminated': current_terminated}
+
+    def batch_terminate_tasks(self, task_ids: List[str]) -> Dict[str, Any]:
+        ids = [str(x or '').strip() for x in (task_ids or []) if str(x or '').strip()]
+        if not ids:
+            return {'terminated': True, 'pendingTerminated': 0, 'currentTerminated': False}
+        affected_pending = self._remove_pending_by_ids(ids)
+        current_terminated = False
+        if self.current_task_id and self.current_task_id in ids and self.status == '运行中':
+            self.stop_event.set()
+            current_terminated = True
+            self.task_status[self.current_task_id] = 'terminated'
+        return {'terminated': True, 'pendingTerminated': affected_pending, 'currentTerminated': current_terminated}
+
+    def get_task_status(self, task_id: str) -> Dict[str, Any]:
+        t = self.task_status.get(str(task_id or '').strip())
+        if not t:
+            # 尝试判断是否在队列或当前运行
+            in_queue = False
+            with self.task_queue.mutex:
+                try:
+                    for item in list(self.task_queue.queue):
+                        if item.get('task_id') == task_id:
+                            in_queue = True
+                            break
+                except Exception:
+                    in_queue = False
+            if in_queue:
+                t = 'pending'
+            elif self.current_task_id and self.current_task_id == task_id and self.status == '运行中':
+                t = 'running'
+            else:
+                t = 'unknown'
+        return {'taskId': task_id, 'status': t}
     
     def _process_task(self, up_list_override: List[Dict[str, Any]] | None = None, force: bool = False, max_videos: int | None = None, task_id: str | None = None):
         """处理任务的线程函数"""
@@ -534,7 +653,7 @@ class BiliVoxManager:
             # 检查模型加载状态
             if self.status == '错误':
                 self._log('模型加载失败，停止处理任务')
-                self.status = '空闲'
+                # self.status = '空闲' # 由Worker管理状态
                 return
             
             up_list = up_list_override if up_list_override is not None else self.config.get('up_list', [])
@@ -765,14 +884,14 @@ class BiliVoxManager:
                 processed_up += 1
                 self.progress = int((processed_up / total_up) * 100)
             
-            self.status = '空闲'
-            self.current_task_id = None
-            self.current_up_name = None
-            self.current_title = None
+            # self.status = '空闲'
+            # self.current_task_id = None
+            # self.current_up_name = None
+            # self.current_title = None
             self._log('任务处理完成')
             
         except Exception as e:
-            self.status = '错误'
+            # self.status = '错误'
             self._log(f'处理任务出错: {e}')
 
     def _find_existing_markdown_for_video(self, video: Dict[str, Any], up_name: str) -> str | None:
@@ -794,14 +913,15 @@ class BiliVoxManager:
 
     def _process_single_video(self, up_name: str, video: Dict[str, Any], force: bool = False, task_id: str | None = None):
         try:
+            self.current_task_id = task_id # 显式设置当前任务ID
             self._log('开始处理任务，加载必要的模型...')
             self._load_models()
             if self.status == '错误':
                 self._log('模型加载失败，停止处理任务')
-                self.status = '空闲'
-                self.current_task_id = None
-                self.current_up_name = None
-                self.current_title = None
+                # self.status = '空闲'
+                # self.current_task_id = None
+                # self.current_up_name = None
+                # self.current_title = None
                 return
 
             # 尝试获取真实的 UP 主名称和 UID
@@ -848,11 +968,11 @@ class BiliVoxManager:
                 else:
                     self._add_history(up_name, video.get('title', '未知'), '失败', task_id=task_id, file_path=None, detail='检测到已有文档，但未能定位产物文件', duration_sec=0)
                     self._log('检测到已有文档，但未能定位产物文件')
-                self.status = '空闲'
-                self.current_task_id = None
-                self.current_up_name = None
-                self.current_title = None
-                return
+            # self.status = '空闲'
+            # self.current_task_id = None
+            # self.current_up_name = None
+            # self.current_title = None
+            return
 
             title = video.get('title', '未知')
             bv_id = video.get('bv_id', '未知')
@@ -879,10 +999,10 @@ class BiliVoxManager:
             except Exception as e:
                 self._log(f'下载音频失败: {e}')
                 self._add_history(up_name, title, '失败', task_id=task_id, file_path=None, detail=f'下载音频失败: {e}', duration_sec=int(time.time() - t0))
-                self.status = '空闲'
-                self.current_task_id = None
-                self.current_up_name = None
-                self.current_title = None
+                # self.status = '空闲'
+                # self.current_task_id = None
+                # self.current_up_name = None
+                # self.current_title = None
                 return
             self._log(f'下载完成（耗时 {int(time.time() - t0)}s）')
             download_sec = int(time.time() - t0)
@@ -933,10 +1053,10 @@ class BiliVoxManager:
                 self.downloader.cleanup(audio_path)
                 asr_sec = int(time.time() - t0)
                 self._add_history(up_name, title, '失败', task_id=task_id, file_path=None, detail=f'转录失败: {e}', duration_sec=download_sec + asr_sec, download_sec=download_sec, asr_sec=asr_sec)
-                self.status = '空闲'
-                self.current_task_id = None
-                self.current_up_name = None
-                self.current_title = None
+                # self.status = '空闲'
+                # self.current_task_id = None
+                # self.current_up_name = None
+                # self.current_title = None
                 return
             done_event.set()
             try:
@@ -955,10 +1075,10 @@ class BiliVoxManager:
                 self.downloader.cleanup(audio_path)
                 llm_sec = int(time.time() - t0)
                 self._add_history(up_name, title, '失败', task_id=task_id, file_path=None, detail='AI 整理失败', duration_sec=download_sec + asr_sec + llm_sec, download_sec=download_sec, asr_sec=asr_sec, llm_sec=llm_sec)
-                self.status = '空闲'
-                self.current_task_id = None
-                self.current_up_name = None
-                self.current_title = None
+                # self.status = '空闲'
+                # self.current_task_id = None
+                # self.current_up_name = None
+                # self.current_title = None
                 return
             self._log(f'AI 整理完成（耗时 {int(time.time() - t0)}s）')
             llm_sec = int(time.time() - t0)
@@ -974,13 +1094,13 @@ class BiliVoxManager:
             self.progress = 100
 
             self.downloader.cleanup(audio_path)
-            self.status = '空闲'
-            self.current_task_id = None
-            self.current_up_name = None
-            self.current_title = None
+            # self.status = '空闲'
+            # self.current_task_id = None
+            # self.current_up_name = None
+            # self.current_title = None
             self._log('任务处理完成')
         except Exception as e:
-            self.status = '错误'
+            # self.status = '错误'
             self._log(f'处理任务出错: {e}')
     
     def _should_process_video(self, video, up_name):
@@ -993,8 +1113,13 @@ class BiliVoxManager:
         title = video.get('title', '')
         
         for file in os.listdir(up_output_dir):
-            if file.endswith('.md') and (bv_id in file or title in file):
-                return False
+            if file.endswith('.md'):
+                # 使用更严谨的判断逻辑，防止空字符串导致误判
+                match_bv = bool(bv_id and str(bv_id).strip() and str(bv_id).strip() in file)
+                match_title = bool(title and str(title).strip() and str(title).strip() in file)
+                
+                if match_bv or match_title:
+                    return False
         
         return True
     
@@ -1021,17 +1146,7 @@ class BiliVoxManager:
             
             # 清理文件名
             safe_title = ''.join(c for c in title if c not in '\\/:*?"<>|')
-            
-            if upload_date:
-                # 转换日期格式：YYYYMMDD → YYYY-MM-DD
-                if len(upload_date) == 8:
-                    date_str = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:]}"
-                else:
-                    date_str = upload_date
-                # 命名格式：视频标题_上传日期_BV号.md (用户要求：VideoTitle_UploadDate_BVId)
-                filename = f"{safe_title}_{date_str}_{bv_id}.md"
-            else:
-                filename = f"{safe_title}_{bv_id}.md"
+            filename = f"{safe_title}.md"
             
             # 处理 Frontmatter
             # 1. 移除内容中现有的 Frontmatter
@@ -1242,6 +1357,7 @@ class BiliVoxManager:
         return {
             'status': self.status,
             'progress': self.progress,
+            'queueSize': self.task_queue.qsize(),
             'logs': self.logs,
             'gpuUsage': self.gpu_usage,
             'gpuMemory': self.gpu_memory,
@@ -1466,40 +1582,31 @@ class BiliVoxManager:
                         # 提取日期
                         date = '未知'
                         video_name = file
-                        
-                        # 解析新格式：YYYY-MM-DD_BV号.md 或 YYYY-MM-DD_视频名称.md
-                        if '_' in file and file.endswith('.md'):
-                            parts = file.split('_', 1)
-                            if len(parts) == 2 and len(parts[0]) == 10 and parts[0][4] == '-' and parts[0][7] == '-':
-                                date = parts[0]
-                                video_name = parts[1][:-3] # 去掉 .md
-                        
-                        # 兼容旧格式：[YYYY-MM-DD] 视频名称.md
-                        elif file.startswith('[') and ']' in file:
-                            date_part = file.split(']')[0][1:]
-                            if len(date_part) == 10:
-                                date = date_part
-                                video_name = file.split(']', 1)[1].strip()[:-3]
-
-                        # 尝试读取文件内容获取 BV 号和 UID
                         bv_id = None
+                        
+                        if file.endswith('.md'):
+                            video_name = file[:-3]
+
+                        # 尝试读取文件内容获取 BV 号和 UID 以及 upload_date
                         uid = None
                         title_fm = None
                         author_fm = None
+                        upload_date_fm = None
+                        
                         try:
                             with open(absolute_path, 'r', encoding='utf-8') as f:
-                                # 读取前20行查找 frontmatter
-                                for _ in range(20):
+                                # 读取前30行查找 frontmatter
+                                for _ in range(30):
                                     line = f.readline()
                                     if not line: break
                                     line = line.strip()
                                     if line.startswith('bv: '):
-                                        bv_id = line[4:].strip()
+                                        if not bv_id: bv_id = line[4:].strip()
                                     elif line.startswith('bvid: '):
-                                        bv_id = line[6:].strip()
+                                        if not bv_id: bv_id = line[6:].strip()
                                     elif line.startswith('source: '):
                                         val = line[8:].strip()
-                                        if val.startswith('BV'):
+                                        if val.startswith('BV') and not bv_id:
                                             bv_id = val
                                     elif line.startswith('uid: '): 
                                         uid = line[5:].strip()
@@ -1507,17 +1614,36 @@ class BiliVoxManager:
                                         title_fm = line[7:].strip()
                                     elif line.startswith('author: '):
                                         author_fm = line[8:].strip()
+                                    elif line.startswith('upload_date: '):
+                                        upload_date_fm = line[13:].strip()
                         except Exception:
                             pass
+                        
+                        # 优先使用 frontmatter 中的 upload_date
+                        if upload_date_fm:
+                            # 格式化 YYYYMMDD -> YYYY-MM-DD
+                            if len(upload_date_fm) == 8 and upload_date_fm.isdigit():
+                                date = f"{upload_date_fm[:4]}-{upload_date_fm[4:6]}-{upload_date_fm[6:]}"
+                            else:
+                                date = upload_date_fm
 
-                        # 如果文件内容没读到 BV 号，尝试从文件名解析
+                        # 如果文件内容没读到 BV 号，尝试从文件名解析 (如果上面 regex 没匹配到)
+                        # 注意：重构后文件名不再包含 BV 号，此逻辑仅为兼容旧文件
                         if not bv_id:
-                            # 匹配 "视频 BV..." 或 "..._BV..."
-                            import re
                             # 尝试匹配 BV 号 (BV + 10位字母数字)
+                            import re
                             m = re.search(r'(BV[a-zA-Z0-9]{10})', file)
                             if m:
                                 bv_id = m.group(1)
+                            
+                            # 兼容旧格式解析
+                            if '_' in file:
+                                match_suffix = re.search(r'^(.*)_(\d{4}-\d{2}-\d{2})_(BV[a-zA-Z0-9]+)\.md$', file)
+                                if match_suffix:
+                                    # 如果是旧格式文件，从文件名恢复信息
+                                    if not title_fm: video_name = match_suffix.group(1)
+                                    if date == '未知': date = match_suffix.group(2)
+                                    if not bv_id: bv_id = match_suffix.group(3)
 
                         # 如果文件内容没读到 UID，尝试从路径或配置推断
                         real_up_name = author_fm or item # 优先使用 Frontmatter 中的 author
@@ -1540,9 +1666,11 @@ class BiliVoxManager:
                         
                         files.append({
                             'up': real_up_name, # 使用确认过的 UP 名称
-                            'name': file,
+                            'name': video_name, # 使用处理后的显示名称
+                            'filename': file,   # 原始文件名
                             'path': file_path,
                             'date': date,
+                            'bv': bv_id,        # 新增 BV 字段
                             'videoName': bv_id or video_name, # 前端展示用，优先 BV 号
                             'title': title_fm or video_name, # 保留标题供其他用途
                             'uid': uid,

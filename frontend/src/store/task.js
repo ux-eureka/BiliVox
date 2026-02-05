@@ -292,6 +292,14 @@ export const useTaskStore = defineStore('task', () => {
     task.failCount = (Number.isFinite(task.failCount) ? task.failCount : 0) + 1
     save()
   }
+  
+  const markTaskTerminated = (id) => {
+    const task = tasks.value.find(t => t.id === id)
+    if (!task) return
+    task.status = 'terminated'
+    task.lastTickAt = null
+    save()
+  }
 
   const setTaskDuration = (id, totalSeconds) => {
     const task = tasks.value.find(t => t.id === id)
@@ -321,6 +329,7 @@ export const useTaskStore = defineStore('task', () => {
     setTaskLastOutput,
     markTaskDone,
     markTaskFailed,
+    markTaskTerminated,
     setTaskDuration,
   }
 })

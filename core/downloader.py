@@ -1,6 +1,9 @@
 import os
 import json
 import re
+import time
+import socket
+import uuid
 import yt_dlp
 from typing import List, Dict, Optional
 from urllib.parse import urlparse
@@ -155,36 +158,124 @@ class BiliDownloader:
 
         raise ValueError("无法从链接中提取 UID")
 
+    def _log_structured(self, action: str, **kwargs):
+        log_entry = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "req_id": str(uuid.uuid4()),
+            "action": action,
+            "server_ip": socket.gethostbyname(socket.gethostname()),
+            **kwargs
+        }
+        print(f"[BiliDownloader] {json.dumps(log_entry, ensure_ascii=False)}")
+
     def _normalize_video_url(self, video_url: str | None, bv_id: str | None) -> str:
         raw = str(video_url or "").strip()
         bvid = str(bv_id or "").strip()
-        if raw and re.match(r"^https?://", raw, re.IGNORECASE):
-            return raw
-        if raw and re.fullmatch(r"BV[0-9A-Za-z]+", raw):
-            return f"https://www.bilibili.com/video/{raw}"
+        
+        self._log_structured("normalize_url_start", input_url=raw, input_bv=bvid)
+        
+        # 优先尝试从 URL 中提取 BV 号来重建干净的 URL
+        if raw:
+            # 匹配 /video/BV...
+            m = re.search(r"/video/(BV[0-9A-Za-z]{10})", raw)
+            if m:
+                clean_url = f"https://www.bilibili.com/video/{m.group(1)}"
+                self._log_structured("normalize_url_success", output_url=clean_url, strategy="extract_bv_from_url")
+                return clean_url
+            
+            # 匹配纯 BV 号
+            if re.fullmatch(r"BV[0-9A-Za-z]{10,}", raw):
+                 clean_url = f"https://www.bilibili.com/video/{raw}"
+                 self._log_structured("normalize_url_success", output_url=clean_url, strategy="raw_is_bv")
+                 return clean_url
+
         if bvid and re.fullmatch(r"BV[0-9A-Za-z]+", bvid):
-            return f"https://www.bilibili.com/video/{bvid}"
+            clean_url = f"https://www.bilibili.com/video/{bvid}"
+            self._log_structured("normalize_url_success", output_url=clean_url, strategy="use_bvid_param")
+            return clean_url
+            
         if raw and raw.startswith("/video/") and bvid:
-            return f"https://www.bilibili.com{raw}"
-        if raw and raw:
+            clean_url = f"https://www.bilibili.com{raw}"
+            # 再次检查是否包含参数
+            if "?" in clean_url:
+                 # 尝试清理
+                 clean_url = clean_url.split("?")[0]
+            self._log_structured("normalize_url_success", output_url=clean_url, strategy="concat_path")
+            return clean_url
+            
+        if raw and re.match(r"^https?://", raw, re.IGNORECASE):
+            # 最后的兜底：如果是 URL，尝试清理查询参数
+            try:
+                parsed = urlparse(raw)
+                # 如果是 bilibili 视频链接，强制清理 query
+                if "bilibili.com/video/" in raw:
+                    path = parsed.path
+                    if path.endswith("/"):
+                        path = path[:-1]
+                    clean_url = f"{parsed.scheme}://{parsed.netloc}{path}"
+                    self._log_structured("normalize_url_success", output_url=clean_url, strategy="clean_query_params")
+                    return clean_url
+            except Exception:
+                pass
+            
+            self._log_structured("normalize_url_warning", output_url=raw, strategy="raw_url_fallback")
             return raw
+            
+        if raw:
+             return raw
+             
+        self._log_structured("normalize_url_failed", error="empty_input")
         raise ValueError("视频 URL 为空，无法下载")
 
     def _fetch_bilibili_acc_info(self, uid: str) -> Dict:
-        api = f"https://api.bilibili.com/x/space/acc/info?mid={uid}&jsonp=jsonp"
-        req = Request(api, headers=self.headers)
-        with urlopen(req, timeout=10) as resp:
-            payload = resp.read().decode("utf-8", errors="replace")
-        data = json.loads(payload or "{}")
-        if not isinstance(data, dict) or data.get("code") != 0:
-            raise ValueError("B 站接口返回异常")
-        info = data.get("data") or {}
-        return {
-            "name": info.get("name"),
-            "uid": uid,
-            "face": info.get("face"),
-            "desc": info.get("sign"),
-        }
+        # 尝试多个 API 接口以提高成功率
+        # 1. acc/info: 标准空间信息接口
+        # 2. web-interface/card: 用户卡片接口 (通常用于鼠标悬停显示，反爬较松)
+        apis = [
+            f"https://api.bilibili.com/x/space/acc/info?mid={uid}&jsonp=jsonp",
+            f"https://api.bilibili.com/x/web-interface/card?mid={uid}"
+        ]
+        
+        last_err = None
+        for api in apis:
+            try:
+                headers = self.headers.copy()
+                # 添加 Referer，部分接口强校验
+                headers['Referer'] = f"https://space.bilibili.com/{uid}/"
+                
+                req = Request(api, headers=headers)
+                with urlopen(req, timeout=10) as resp:
+                    payload = resp.read().decode("utf-8", errors="replace")
+                
+                data = json.loads(payload or "{}")
+                if not isinstance(data, dict) or data.get("code") != 0:
+                    last_err = ValueError(f"API {api} 返回错误: {data}")
+                    continue
+                
+                # 解析不同接口的返回结构
+                if "web-interface/card" in api:
+                    card = data.get("data", {}).get("card", {})
+                    return {
+                        "name": card.get("name"),
+                        "uid": uid,
+                        "face": card.get("face"),
+                        "desc": card.get("sign"),
+                    }
+                else:
+                    info = data.get("data") or {}
+                    return {
+                        "name": info.get("name"),
+                        "uid": uid,
+                        "face": info.get("face"),
+                        "desc": info.get("sign"),
+                    }
+            except Exception as e:
+                last_err = e
+                continue
+        
+        if last_err:
+            raise last_err
+        raise ValueError("无法获取 UP 主信息")
     
     def get_up_info(self, url: str) -> Dict:
         """
@@ -207,6 +298,12 @@ class BiliDownloader:
         }
         self._apply_cookie_options(ydl_opts)
         
+        name = None
+        face = None
+        desc = None
+        follower = None
+        latest_video = None
+
         try:
             info = self._extract_info_with_retry(space_url, ydl_opts)
 
@@ -216,40 +313,39 @@ class BiliDownloader:
             face = info.get('thumbnails', [{}])[-1].get('url') if info.get('thumbnails') else None
             desc = info.get('description')
             follower = info.get('subscriber_count')
-
-            if not name:
-                try:
-                    api_info = self._fetch_bilibili_acc_info(uid)
-                    name = api_info.get("name") or name
-                    face = api_info.get("face") or face
-                    desc = api_info.get("desc") or desc
-                except Exception:
-                    pass
-
-            if not name:
-                name = f"UID {uid}"
-
-            return {
-                'name': name,
-                'uid': uid,
-                'face': face,
-                'follower': follower,
-                'desc': desc,
-                'latest_video': {
+            
+            if first_entry:
+                latest_video = {
                     'title': first_entry.get('title'),
                     'pic': first_entry.get('thumbnails', [{}])[-1].get('url') if first_entry.get('thumbnails') else None,
                     'created': first_entry.get('upload_date')
-                } if first_entry else None
-            }
-        except Exception:
-            return {
-                "name": f"UID {uid}",
-                "uid": uid,
-                "face": None,
-                "follower": None,
-                "desc": None,
-                "latest_video": None,
-            }
+                }
+        except Exception as e:
+            # yt-dlp 失败（如 352 拒绝），尝试使用 API 降级获取
+            self._log_structured("get_up_info_ytdlp_failed", uid=uid, error=str(e))
+            pass
+
+        if not name:
+            try:
+                api_info = self._fetch_bilibili_acc_info(uid)
+                name = api_info.get("name") or name
+                face = api_info.get("face") or face
+                desc = api_info.get("desc") or desc
+            except Exception as e:
+                self._log_structured("get_up_info_api_failed", uid=uid, error=str(e))
+                pass
+
+        if not name:
+            name = f"UID {uid}"
+
+        return {
+            'name': name,
+            'uid': uid,
+            'face': face,
+            'follower': follower,
+            'desc': desc,
+            'latest_video': latest_video
+        }
 
     def get_video_list(self, uid: str) -> List[Dict]:
         """
@@ -429,6 +525,8 @@ class BiliDownloader:
 
     def get_video_meta(self, bv_id: str) -> Dict:
         bvid = str(bv_id or "").strip()
+        self._log_structured("get_video_meta_start", bvid=bvid)
+        
         if not bvid:
             raise ValueError("无效的 BV 号")
         # 改用 view/detail 接口以获取更完整的元数据（包含 tags）
@@ -438,6 +536,7 @@ class BiliDownloader:
             payload = resp.read().decode("utf-8", errors="replace")
         data = json.loads(payload or "{}")
         if not isinstance(data, dict) or data.get("code") != 0:
+            self._log_structured("get_video_meta_failed", bvid=bvid, response=data)
             raise ValueError("B 站接口返回异常")
         
         # detail 接口的数据结构：data -> View, Card, Tags, Reply, Related
@@ -465,6 +564,8 @@ class BiliDownloader:
                 name = t.get("tag_name")
                 if name:
                     tags.append(name)
+
+        self._log_structured("get_video_meta_success", bvid=bvid, title=info.get("title"), uid=str(owner.get("mid") or ""))
 
         return {
             "bvId": bvid,

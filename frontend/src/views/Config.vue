@@ -152,20 +152,24 @@
                   </div>
                   
                   <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-                    <t-form-item label="选择 API 预设" name="llm_preset" help="请选择一个已配置的 API 预设，或点击右上角管理预设">
+                    <t-form-item label="API 预设" name="llm_preset" help="请选择一个已配置的 API 预设，或点击右上角管理预设">
                       <t-select 
                         v-model="matchedPresetId" 
-                        :options="presetOptions" 
                         placeholder="请选择 API 预设" 
                         filterable
                         clearable
                       >
-                         <template #option="{ option }">
-                            <div class="flex flex-col py-1">
-                              <span class="font-bold text-gray-900">{{ option.label }}</span>
-                              <span class="text-xs text-gray-500">{{ option.content.model_name }} | {{ option.content.api_base_url }}</span>
+                        <t-option
+                           v-for="item in presetOptions"
+                           :key="item.value"
+                           :value="item.value"
+                           :label="item.label"
+                        >
+                            <div class="flex items-center justify-between gap-4 min-w-0">
+                              <span class="font-bold text-gray-900 truncate shrink-0">{{ item.title }}</span>
+                              <span class="text-xs text-gray-500 truncate text-right">{{ item.rawPreset.model_name }} | {{ item.rawPreset.api_base_url }}</span>
                             </div>
-                         </template>
+                        </t-option>
                       </t-select>
                     </t-form-item>
                     
@@ -537,11 +541,27 @@ const editingPreset = ref(null)
 const importInput = ref(null)
 
 const presetOptions = computed(() => {
-  return presets.value.map(p => ({
-    label: p.name,
-    value: p.id,
-    content: p
-  }))
+  if (!Array.isArray(presets.value)) return []
+  return presets.value.map(p => {
+    // 防御性处理：确保 name 是字符串
+    let labelStr = '未命名预设'
+    try {
+      if (p && typeof p.name === 'object') {
+        labelStr = JSON.stringify(p.name)
+      } else if (p && p.name) {
+        labelStr = String(p.name)
+      }
+    } catch (e) {
+      labelStr = 'Invalid Name'
+    }
+
+    return {
+      label: p.model_name ? `${labelStr} (${p.model_name})` : labelStr,
+      value: p?.id || '',
+      title: labelStr,
+      rawPreset: p || {}
+    }
+  })
 })
 
 const matchedPresetId = computed({

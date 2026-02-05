@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import os
 import json
 from core.bilivox_manager import BiliVoxManager
@@ -8,6 +8,7 @@ from fastapi import Query
 from api.auth import require_api_key
 from fastapi.responses import FileResponse as FastAPIFileResponse, StreamingResponse
 from pydantic import Field
+from pydantic import BaseModel as _BaseModel
 
 # 创建路由器
 router = APIRouter()
@@ -43,6 +44,7 @@ class MonitorPollRequest(BaseModel):
 class StatusResponse(BaseModel):
     status: str
     progress: int
+    queueSize: int = 0
     logs: List[str]
     gpuUsage: int
     gpuMemory: int
@@ -70,18 +72,29 @@ class HistoryResponse(BaseModel):
     asrSec: int | None = None
     llmSec: int | None = None
 
+class TerminateBatchRequest(_BaseModel):
+    taskIds: List[str]
+
+class TaskStatusResponse(_BaseModel):
+    taskId: str
+    status: str
+
 # 文件响应模型
-class FileResponse(BaseModel):
+class FileItem(BaseModel):
     up: str
     name: str
     path: str
     date: str
-    modifiedTs: int | None = None
+    bv: Optional[str] = None
+    videoName: str
+    title: str
+    uid: Optional[str] = None
+    modifiedTs: Optional[int] = None
 
 # 文件列表响应模型
 class FilesListResponse(BaseModel):
     upList: List[str]
-    files: List[FileResponse]
+    files: List[FileItem]
 
 class StartUpTaskRequest(BaseModel):
     uid: str = Field(..., description="UP 主 UID")
@@ -190,6 +203,42 @@ async def start_up_task(
     except Exception as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"message": "开始处理任务"}
+
+@router.delete("/task/{task_id}/terminate")
+async def terminate_task(
+    task_id: str,
+    bilivox: BiliVoxManager = Depends(get_bilivox_manager),
+    _: None = Depends(require_api_key),
+):
+    try:
+        result = bilivox.terminate_task(task_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/task/batch-terminate")
+async def batch_terminate(
+    req: TerminateBatchRequest,
+    bilivox: BiliVoxManager = Depends(get_bilivox_manager),
+    _: None = Depends(require_api_key),
+):
+    try:
+        result = bilivox.batch_terminate_tasks(req.taskIds or [])
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/task/{task_id}/status", response_model=TaskStatusResponse)
+async def get_task_status(
+    task_id: str,
+    bilivox: BiliVoxManager = Depends(get_bilivox_manager),
+    _: None = Depends(require_api_key),
+):
+    try:
+        result = bilivox.get_task_status(task_id)
+        return TaskStatusResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/task/output", response_model=TaskOutputResponse)
 async def get_task_output(

@@ -153,7 +153,9 @@
               variant="text"
               size="small"
               theme="danger"
-              @click="confirmClearAllTasks"
+              :loading="clearingAll"
+              :disabled="clearingAll"
+              @click="onClearAllClick"
             >
               <template #icon><t-icon name="delete" /></template>
               清空
@@ -226,7 +228,9 @@
                     variant="text"
                     shape="square"
                     aria-label="取消任务"
-                    @click="confirmCancelTask(task)"
+                    :loading="terminatingIds.has(task.id)"
+                    :disabled="terminatingIds.has(task.id)"
+                    @click="onCancelTaskClick(task)"
                   >
                     <t-icon name="close" />
                   </t-button>
@@ -271,6 +275,7 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { useTaskStore } from '../store/task'
 import { http } from '../api/http'
+import { terminateTask, batchTerminateTasks } from '../api/tasks'
 import { useRouter } from 'vue-router'
 
 const taskStore = useTaskStore()
@@ -497,49 +502,109 @@ const recognizeLinks = async () => {
   await focusLinkInput()
 }
 
-const confirmCancelTask = (task) => {
-  const instance = DialogPlugin.confirm({
+const terminatingIds = ref(new Set())
+const clearingAll = ref(false)
+const debounce = (fn, delay) => {
+  let t = null
+  return (...args) => {
+    if (t) clearTimeout(t)
+    t = setTimeout(() => fn(...args), delay)
+  }
+}
+const showFixedError = (msg) => {
+  MessagePlugin.error({ content: msg, duration: 5000 })
+}
+const onCancelTaskClick = debounce(async (task) => {
+  const confirm = DialogPlugin.confirm({
     header: '确认取消',
     body: '确定要取消并移除此任务吗？',
     confirmBtn: '取消任务',
     cancelBtn: '返回',
-    onConfirm: () => {
-      taskStore.removeTask(task.id)
-      MessagePlugin.success('已取消')
-      instance.destroy()
+    onConfirm: async () => {
+      terminatingIds.value.add(task.id)
+      try {
+        await terminateTask(task.id)
+        taskStore.markTaskTerminated(task.id)
+        taskStore.removeTask(task.id)
+        const poll = async () => {
+          try {
+            const r = await http.get(`/api/task/${encodeURIComponent(task.id)}/status`)
+            if (String(r.data?.status || '') !== 'terminated') {
+              await new Promise(res => setTimeout(res, 500))
+              return poll()
+            }
+          } catch (e) {}
+        }
+        await poll()
+        MessagePlugin.success('任务已终止')
+      } catch (e) {
+        showFixedError('任务终止失败，请刷新后重试')
+      } finally {
+        terminatingIds.value.delete(task.id)
+        confirm.destroy()
+      }
     },
     onClose: () => {
-      instance.destroy()
+      confirm.destroy()
     },
   })
-}
+}, 300)
 
 const hydratingDurations = ref(false)
 
 const hydrateEstimatedDurations = async () => {}
 
 const goFilesForUp = (task) => {
-  const up = task?.name
-  router.push({ path: '/files', query: { up } })
+  // 如果是视频任务，跳转时带上 keyword 而不是 up
+  // 如果是 UP 主任务，task.name 就是 UP 主名称
+  if (task.type === 'video') {
+    // 优先使用文件名，因为视频任务的名称可能只是标题
+    const keyword = task.name || ''
+    if (keyword) {
+      router.push({ path: '/files', query: { keyword: encodeURIComponent(keyword) } })
+    } else {
+      router.push({ path: '/files' })
+    }
+  } else {
+    const up = task.name
+    if (up) {
+      router.push({ path: '/files', query: { up: encodeURIComponent(up) } })
+    } else {
+      router.push({ path: '/files' })
+    }
+  }
 }
 
-const confirmClearAllTasks = () => {
-  if (taskStore.tasks.length === 0) return
+const onClearAllClick = debounce(() => {
+  const list = Array.isArray(taskStore.tasks) ? taskStore.tasks : []
+  const pendingIds = list.filter(t => t && (t.status === 'waiting' || t.status === 'pending')).map(t => t.id)
+  if (pendingIds.length === 0) return
   const instance = DialogPlugin.confirm({
     header: '确认清空',
-    body: '确定要清空待处理任务列表吗？（不会停止后台正在运行的任务）',
+    body: '确定要清空待处理任务列表吗？',
     confirmBtn: '清空列表',
     cancelBtn: '返回',
-    onConfirm: () => {
-      taskStore.clearTasks()
-      MessagePlugin.success('已清空待处理任务')
-      instance.destroy()
+    onConfirm: async () => {
+      clearingAll.value = true
+      try {
+        await batchTerminateTasks(pendingIds)
+        for (const id of pendingIds) {
+          taskStore.markTaskTerminated(id)
+          taskStore.removeTask(id)
+        }
+        MessagePlugin.success('已清空待处理任务')
+      } catch (e) {
+        showFixedError('任务终止失败，请刷新后重试')
+      } finally {
+        clearingAll.value = false
+        instance.destroy()
+      }
     },
     onClose: () => {
       instance.destroy()
     },
   })
-}
+}, 300)
 
 const downloadTaskDoc = async (task) => {
   try {

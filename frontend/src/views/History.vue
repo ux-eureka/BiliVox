@@ -77,7 +77,9 @@
           <t-input v-model="searchQuery" placeholder="搜索 UP主 或 视频标题" class="w-64">
             <template #prefix-icon><t-icon name="search" /></template>
           </t-input>
-          <t-select v-model="statusFilter" :options="statusOptions" placeholder="状态过滤" clearable class="w-40" />
+          <t-select v-model="statusFilter" placeholder="状态过滤" clearable class="w-40">
+             <t-option v-for="opt in statusOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
+          </t-select>
           <t-date-range-picker v-model="dateRange" placeholder="选择时间范围" class="w-64" />
         </div>
         <div class="flex gap-2">

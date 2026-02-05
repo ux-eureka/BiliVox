@@ -7,10 +7,7 @@
           <h2 class="text-xl font-bold text-gray-900">文件管理</h2>
           <p class="text-sm text-gray-500 mt-1">查看和管理已生成的知识库文件</p>
         </div>
-        <div class="flex gap-3">
-          <t-input v-model="searchQuery" placeholder="搜索文件..." class="w-64">
-            <template #prefix-icon><t-icon name="search" /></template>
-          </t-input>
+        <div class="ml-auto flex items-center text-sm text-gray-500">
           <t-button variant="outline" @click="fetchFiles">
             <template #icon><t-icon name="refresh" /></template>
             刷新
@@ -21,15 +18,28 @@
 
     <!-- 文件列表 -->
     <t-card :bordered="false" class="flex-1 overflow-hidden flex flex-col relative">
-      <div class="mb-4 flex gap-4">
-        <t-select v-model="selectedUp" :options="upOptions" placeholder="筛选 UP 主" clearable class="w-48" />
-        <t-select v-model="sortBy" :options="sortOptions" placeholder="排序方式" class="w-40" />
+      <div class="mb-4 flex gap-3 items-center">
+        <div class="flex items-center gap-3">
+          <t-input v-model="searchQuery" placeholder="搜索文件..." class="w-64" clearable>
+            <template #prefix-icon><t-icon name="search" /></template>
+          </t-input>
+          <!-- 新增：支持实时搜索的输入型筛选组件（与搜索框高度一致） -->
+          <SearchSelect
+            :model-value="filterValue.up || []"
+            :options="upOptions"
+            placeholder="筛选 UP 主"
+            width="160px"
+            @update:modelValue="(vals) => filterValue.up = vals"
+            @change="(vals) => onFilterChange({ ...filterValue, up: vals })"
+          />
+        </div>
+        <t-select v-model="sortBy" :options="sortOptions" placeholder="排序方式" class="w-36" />
         <div class="ml-auto flex items-center text-sm text-gray-500">
           共 <span class="font-bold text-gray-900 mx-1">{{ filteredFiles.length }}</span> 个文件
         </div>
       </div>
 
-      <div class="flex-1 overflow-auto pb-16">
+      <div class="flex-1 overflow-auto pb-16 task-list-container">
         <t-table
           :data="filteredFiles"
           :columns="columns"
@@ -38,22 +48,35 @@
           :pagination="pagination"
           :selected-row-keys="selectedRowKeys"
           @select-change="onSelectChange"
+          :filter-value="filterValue"
+          @filter-change="onFilterChange"
         >
           <template #name="{ row }">
             <div class="flex items-center">
               <div class="w-8 h-8 rounded bg-blue-50 text-blue-600 flex items-center justify-center mr-3 flex-shrink-0">
                 <t-icon name="file" />
               </div>
-              <span class="font-medium text-gray-900 hover:text-blue-600 cursor-pointer transition-colors truncate" :title="row.name" @click="previewFile(row)">{{ row.name }}</span>
+              <span 
+                class="font-medium text-gray-900 hover:text-blue-600 cursor-pointer transition-colors truncate" 
+                :title="row.name" 
+                @click="previewFile(row)"
+                v-html="highlight(row.name)"
+              ></span>
             </div>
           </template>
           
+          <template #bv="{ row }">
+            <span v-if="row.bv" class="font-mono text-xs bg-gray-100 px-1 py-0.5 rounded" v-html="highlight(row.bv)"></span>
+            <span v-else class="text-gray-300">-</span>
+          </template>
+          
           <template #date="{ row }">
-             {{ row.date }}
+             <span v-if="row.date && row.date !== '未知'">{{ row.date }}</span>
+             <span v-else class="text-gray-300">未知</span>
           </template>
 
           <template #up="{ row }">
-            <t-tag variant="light" theme="default" class="truncate max-w-full" :title="row.up">{{ row.up }}</t-tag>
+            <t-tag variant="light" theme="default" class="truncate max-w-full" :title="row.up" v-html="highlight(row.up)"></t-tag>
           </template>
           
           <template #op="{ row }">
@@ -128,22 +151,25 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
 import { MessagePlugin, DialogPlugin, Checkbox } from 'tdesign-vue-next'
 import { http } from '../api/http'
 import { useRoute } from 'vue-router'
 
 const files = ref([])
 const upList = ref([])
-const selectedUp = ref(null)
+// const selectedUp = ref(null) // Removed
 const searchQuery = ref('')
+const debouncedSearchQuery = ref('')
 const sortBy = ref('date')
 const route = useRoute()
+const containerRef = ref(null) // 滚动容器引用
 
 const selectedRowKeys = ref([])
 const batchDownloading = ref(false)
 const batchMerging = ref(false)
 const selectionMode = ref('multiple')
+const filterValue = ref({}) // Column filter state
 
 const previewVisible = ref(false)
 const previewLoading = ref(false)
@@ -156,6 +182,31 @@ const sortOptions = [
   { value: 'name', label: '文件名称' },
   { value: 'up', label: 'UP 主' }
 ]
+
+const debounce = (fn, delay) => {
+  let timer = null
+  return function (...args) {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      fn.apply(this, args)
+    }, delay)
+  }
+}
+
+watch(searchQuery, debounce((val) => {
+  debouncedSearchQuery.value = val
+}, 300))
+
+const highlight = (text) => {
+  if (!text) return ''
+  if (!debouncedSearchQuery.value) return String(text)
+  const query = debouncedSearchQuery.value.trim()
+  if (!query) return String(text)
+  // Escape regex special characters
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`(${escaped})`, 'gi')
+  return String(text).replace(regex, '<span class="text-blue-600 font-bold bg-yellow-100">$1</span>')
+}
 
 const setSelectionMode = (mode) => {
   const next = mode === 'single' ? 'single' : 'multiple'
@@ -184,9 +235,10 @@ const columns = computed(() => [
       )
     },
   },
-  { colKey: 'name', title: '文件名', width: '40%', ellipsis: true },
-  { colKey: 'date', title: '上传日期', width: '20%', sorter: true },
-  { colKey: 'up', title: 'UP 主', width: '30%' },
+  { colKey: 'name', title: '文件名', width: '30%', ellipsis: true },
+  { colKey: 'bv', title: 'BV号', width: '120', ellipsis: true },
+  { colKey: 'date', title: '上传日期', width: '120', sorter: true },
+  { colKey: 'up', title: 'UP 主', width: '20%' },
   { colKey: 'op', title: '操作', width: '140', align: 'right', fixed: 'right' },
 ])
 
@@ -209,13 +261,20 @@ const upOptions = computed(() => {
 const filteredFiles = computed(() => {
   let result = [...files.value]
   
-  if (selectedUp.value) {
-    result = result.filter(f => f.up === selectedUp.value)
+  // Filter by UP (Column Filter)
+  if (filterValue.value.up && filterValue.value.up.length > 0) {
+    result = result.filter(f => filterValue.value.up.includes(f.up))
   }
   
-  if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase()
-    result = result.filter(f => f.name.toLowerCase().includes(query))
+  // Fuzzy Search
+  if (debouncedSearchQuery.value) {
+    const query = debouncedSearchQuery.value.toLowerCase()
+    result = result.filter(f => 
+      f.name.toLowerCase().includes(query) ||
+      f.up.toLowerCase().includes(query) ||
+      (f.bv && f.bv.toLowerCase().includes(query)) ||
+      (f.title && f.title.toLowerCase().includes(query))
+    )
   }
   
   result.sort((a, b) => {
@@ -245,6 +304,10 @@ const fetchFiles = async () => {
     files.value = []
     upList.value = []
   }
+}
+
+const onFilterChange = (val) => {
+  filterValue.value = val
 }
 
 const onSelectChange = (val, ctx) => {
@@ -442,9 +505,67 @@ const deleteFile = async (row) => {
   })
 }
 
+// 滚动条高度监听
+let resizeObserver = null
+
 onMounted(() => {
+  const keyword = String(route?.query?.keyword || '').trim()
+  if (keyword) {
+    try {
+      searchQuery.value = decodeURIComponent(keyword)
+    } catch (e) {
+      searchQuery.value = keyword
+    }
+  }
+  
   const presetUp = String(route?.query?.up || '').trim()
-  if (presetUp) selectedUp.value = presetUp
+  if (presetUp) {
+    try {
+      const decodedUp = decodeURIComponent(presetUp)
+      filterValue.value = { up: [decodedUp] }
+    } catch (e) {
+      filterValue.value = { up: [presetUp] }
+    }
+  }
   fetchFiles()
+
+  // 初始化 ResizeObserver
+  const container = document.querySelector('.task-list-container')
+  if (container) {
+    resizeObserver = new ResizeObserver(entries => {
+      for (let entry of entries) {
+        // 如果内容高度 <= 300，可以考虑隐藏滚动条（通过 CSS 或动态样式）
+        // 这里主要通过 CSS max-height: 300px + overflow-y: auto 控制
+        // 当内容不足时，浏览器会自动隐藏滚动条，无需额外 JS 干预
+      }
+    })
+    resizeObserver.observe(container.firstElementChild || container)
+  }
+})
+
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
 })
 </script>
+
+<style scoped>
+.task-list-container {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/* 隐藏 TDesign 表格自带的滚动条，使用外层容器滚动 */
+:deep(.t-table__content) {
+  overflow: visible !important;
+}
+:deep(.t-table--layout-fixed) {
+  height: auto !important;
+}
+
+.up-column-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+</style>
