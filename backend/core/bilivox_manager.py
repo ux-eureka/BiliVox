@@ -913,8 +913,17 @@ class BiliVoxManager:
 
     def _process_single_video(self, up_name: str, video: Dict[str, Any], force: bool = False, task_id: str | None = None):
         try:
-            self.current_task_id = task_id # 显式设置当前任务ID
-            self._log('开始处理任务，加载必要的模型...')
+            self.current_task_id = task_id
+
+            bv_id = video.get('bv_id')
+            if not bv_id:
+                self._log('错误：视频缺少 bv_id，无法处理')
+                self._add_history(up_name, video.get('title', '未知'), '失败', task_id=task_id, file_path=None, detail='缺少视频ID (bv_id)', duration_sec=0)
+                return
+
+            video_title = video.get('title') or f'视频 {bv_id}'
+            self._log(f'开始处理任务: {video_title} (BV: {bv_id})')
+            self._log('加载必要的模型...')
             self._load_models()
             if self.status == '错误':
                 self._log('模型加载失败，停止处理任务')
@@ -965,14 +974,11 @@ class BiliVoxManager:
                     self.last_saved_at = int(time.time())
                     self._add_history(up_name, video.get('title', '未知'), '成功', task_id=task_id, file_path=existing, detail='检测到已有文档，已跳过', duration_sec=0)
                     self._log('检测到已有文档，已绑定产物并跳过处理')
+                    return
                 else:
                     self._add_history(up_name, video.get('title', '未知'), '失败', task_id=task_id, file_path=None, detail='检测到已有文档，但未能定位产物文件', duration_sec=0)
                     self._log('检测到已有文档，但未能定位产物文件')
-            # self.status = '空闲'
-            # self.current_task_id = None
-            # self.current_up_name = None
-            # self.current_title = None
-            return
+                    return
 
             title = video.get('title', '未知')
             bv_id = video.get('bv_id', '未知')

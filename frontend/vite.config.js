@@ -30,5 +30,10 @@ export default defineConfig({
         additionalData: `@import "vuetify/styles"`
       }
     }
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['tests/setup/vitest.setup.js']
   }
 })

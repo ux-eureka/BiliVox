@@ -1,153 +1,91 @@
 <template>
-  <div class="control-panel-container grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-6">
-    <!-- 左侧主要内容区 -->
-    <div class="main-content flex flex-col gap-6 min-w-0">
-      <!-- 欢迎卡片 -->
-      <t-card :bordered="false" class="rounded-lg overflow-hidden bg-gradient-to-r from-blue-600 to-blue-500 text-white relative shadow-ui">
-        <!-- <div class="absolute right-0 top-0 h-full w-1/2 bg-[url('https://cdn.vuetifyjs.com/images/parallax/material.jpg')] bg-cover opacity-10 mix-blend-overlay z-0"></div> -->
-        <div class="relative z-10 p-2">
-          <t-row align="middle" justify="space-between">
-            <t-col :span="6" :xs="24" :sm="8">
-              <h1 class="text-3xl font-bold mb-2">控制面板</h1>
-              <p class="text-blue-100 text-lg opacity-90">欢迎回来，系统运行正常。</p>
-            </t-col>
-            <t-col :span="18" :xs="24" :sm="16" class="flex flex-col sm:flex-row items-stretch gap-3 justify-end mt-4 sm:mt-0 h-full">
-              <div class="flex-1 w-full flex items-center" style="min-width: 0;">
-                <t-input
-                  ref="linkInputRef"
-                  v-model="linkInput"
-                  placeholder="输入 B 站 UP 主主页链接或 UID"
-                  :status="linkInputStatus"
-                  :tips="linkInputTips"
-                  @enter="recognizeLinks"
-                  style="width: 100%; min-width: 100%;"
-                >
-                  <template #prefix-icon>
-                    <t-icon name="link" />
-                  </template>
-                </t-input>
-              </div>
-              <t-button theme="default" variant="base" @click="updateStatus">
-                <template #icon><t-icon name="refresh" /></template>
-                刷新状态
-              </t-button>
-              <t-button
-                theme="primary"
-                variant="base"
-                class="bg-white/20 border-white/30 text-white hover:bg-white/30"
-                :loading="recognizing"
-                :disabled="!hasValidLinkInput || recognizing"
-                @click="recognizeLinks"
-              >
-                <template #icon><t-icon name="search" /></template>
-                解析链接
-              </t-button>
-              <t-button v-if="status === '运行中'" theme="danger" variant="base" @click="stopProcess">
-                <template #icon><t-icon name="stop-circle" /></template>
-                停止任务
-              </t-button>
-            </t-col>
-          </t-row>
-        </div>
-      </t-card>
-
-      <!-- 统计数据看板 -->
-      <div class="rounded-2xl bg-[#f8fafc] border border-border p-6">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div class="bg-surface rounded-xl shadow-ui border border-border p-5 cursor-pointer hover:shadow-md transition-all hover:-translate-y-0.5">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                <t-icon name="video" size="20px" />
-              </div>
-              <div class="min-w-0">
-                <div class="text-gray-500 text-xs font-bold uppercase tracking-wider">处理视频</div>
-                <div class="text-2xl font-extrabold text-gray-900 mt-1">{{ videoCount }}</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-surface rounded-xl shadow-ui border border-border p-5 cursor-pointer hover:shadow-md transition-all hover:-translate-y-0.5">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-lg bg-green-50 text-green-600 flex items-center justify-center">
-                <t-icon name="file" size="20px" />
-              </div>
-              <div class="min-w-0">
-                <div class="text-gray-500 text-xs font-bold uppercase tracking-wider">生成笔记</div>
-                <div class="text-2xl font-extrabold text-gray-900 mt-1">{{ noteCount }}</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-surface rounded-xl shadow-ui border border-border p-5 cursor-pointer hover:shadow-md transition-all hover:-translate-y-0.5">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
-                <t-icon name="play-circle" size="20px" />
-              </div>
-              <div class="min-w-0">
-                <div class="text-gray-500 text-xs font-bold uppercase tracking-wider">运行状态</div>
-                <div class="text-2xl font-extrabold text-gray-900 mt-1">{{ status }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
+  <t-card :bordered="false" class="w-full rounded-lg overflow-hidden shrink-0 mb-6">
+    <div class="flex items-center gap-3">
+      <div class="flex-1 w-full flex items-center" style="min-width: 0;">
+        <t-input
+          ref="linkInputRef"
+          v-model="linkInput"
+          placeholder="输入 B 站 UP 主主页链接或 UID"
+          :status="linkInputStatus"
+          :tips="linkInputTips"
+          @enter="recognizeLinks"
+          style="width: 100%; min-width: 100%;"
+        >
+          <template #prefix-icon>
+            <t-icon name="link" />
+          </template>
+        </t-input>
       </div>
-
-      <!-- 系统状态 -->
-      <div class="bg-surface rounded-xl shadow-ui border border-border p-6 flex flex-col md:flex-row items-center gap-8">
-        <div class="flex flex-col items-center justify-center min-w-[160px]">
-          <t-progress theme="circle" :percentage="progress" :status="status === '运行中' ? 'active' : 'default'" size="large" />
-          <div class="mt-4 font-bold text-lg text-gray-800">{{ status }}</div>
-        </div>
-        <div class="flex-1 w-full space-y-6">
-          <div>
-            <div class="flex justify-between text-sm mb-2">
-              <span class="text-gray-500 flex items-center"><t-icon name="cpu" class="mr-2"/>CPU 使用率</span>
-              <span class="font-bold">{{ cpuUsage }}%</span>
-            </div>
-            <t-progress :percentage="cpuUsage" :color="{ from: '#0052D9', to: '#00A870' }" />
-          </div>
-          <div>
-            <div class="flex justify-between text-sm mb-2">
-              <span class="text-gray-500 flex items-center"><t-icon name="layers" class="mr-2"/>内存使用率</span>
-              <span class="font-bold">{{ memoryUsage }}%</span>
-            </div>
-            <t-progress :percentage="memoryUsage" :color="{ from: '#722ED1', to: '#E37318' }" />
-          </div>
-          <div class="flex items-center justify-between text-xs text-gray-500">
-            <div class="flex items-center gap-2">
-              <t-tag size="small" variant="light" theme="default">GPU</t-tag>
-              <span v-if="hasGpu">占用 {{ gpuUsage }}% · 显存 {{ gpuMemory }} MB</span>
-              <span v-else>无 GPU 数据</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 系统日志 -->
-      <t-card title="系统实时日志" :bordered="false" class="h-[400px] flex flex-col shadow-ui">
-        <template #actions>
-          <t-button variant="text" shape="square" @click="clearLogs">
-            <t-icon name="delete" />
-          </t-button>
-        </template>
-        <div class="bg-gray-900 text-gray-300 font-mono text-sm p-4 rounded h-full overflow-auto custom-scrollbar">
-          <div v-if="!logs" class="h-full flex flex-col items-center justify-center text-gray-600">
-            <t-icon name="code" size="32px" class="mb-2" />
-            <span>等待系统输出...</span>
-          </div>
-          <div v-else class="whitespace-pre-wrap">{{ logs }}</div>
-        </div>
-      </t-card>
+      <t-button theme="default" variant="outline" @click="updateStatus">
+        <template #icon><t-icon name="refresh" /></template>
+        刷新状态
+      </t-button>
+      <t-button
+        theme="primary"
+        variant="base"
+        :loading="recognizing"
+        :disabled="!hasValidLinkInput || recognizing"
+        @click="recognizeLinks"
+      >
+        <template #icon><t-icon name="search" /></template>
+        解析链接
+      </t-button>
+      <t-button v-if="status === '运行中'" theme="danger" variant="base" @click="stopProcess">
+        <template #icon><t-icon name="stop-circle" /></template>
+        停止任务
+      </t-button>
     </div>
+  </t-card>
 
-    <!-- 右侧辅助面板 -->
-    <div class="side-panel flex flex-col gap-6 w-full xl:w-[420px]">
-      <!-- 待处理任务 -->
-      <div>
-      <t-card title="待处理任务" :bordered="false" class="h-[500px] flex flex-col shadow-ui">
-        <template #actions>
+  <div class="control-panel-grid h-full">
+    <t-card :bordered="false" class="grid-card">
+      <div class="card-container">
+        <div class="card-header">
+          <span class="text-base font-bold text-gray-900">运行状态</span>
+          <span class="text-xs text-gray-500">CPU {{ cpuUsage }}% · 内存 {{ memoryUsage }}%</span>
+        </div>
+        <div class="card-body">
+          <div class="status-content flex items-center gap-6">
+            <div class="flex flex-col items-center justify-center min-w-[120px]">
+              <t-progress
+                theme="circle"
+                :percentage="progress"
+                :status="status === '运行中' ? 'active' : (progress >= 100 ? 'success' : undefined)"
+                size="large"
+              />
+              <div class="mt-3 font-bold text-base text-gray-900">{{ status }}</div>
+            </div>
+            <div class="flex flex-col gap-4">
+              <div>
+                <div class="flex justify-between text-xs mb-1 w-48">
+                  <span class="text-gray-500">CPU</span>
+                  <span class="font-bold">{{ cpuUsage }}%</span>
+                </div>
+                <t-progress :percentage="cpuUsage" :color="{ from: '#0052D9', to: '#00A870' }" />
+              </div>
+              <div>
+                <div class="flex justify-between text-xs mb-1 w-48">
+                  <span class="text-gray-500">内存</span>
+                  <span class="font-bold">{{ memoryUsage }}%</span>
+                </div>
+                <t-progress :percentage="memoryUsage" :color="{ from: '#722ED1', to: '#E37318' }" />
+              </div>
+              <div class="text-xs text-gray-500">
+                <t-tag size="small" variant="light" theme="default">GPU</t-tag>
+                <span class="ml-1">{{ hasGpu ? `占用 ${gpuUsage}% · ${gpuMemory} MB` : '无 GPU 数据' }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </t-card>
+
+    <t-card :bordered="false" class="grid-card">
+      <div class="card-container">
+        <div class="card-header">
+          <span class="text-base font-bold text-gray-900">待处理任务</span>
           <div class="flex items-center gap-2">
-            <t-tag variant="light" theme="primary">{{ taskStore.tasks.length }} 个任务</t-tag>
+            <t-tag variant="light" theme="primary" size="small">{{ taskStore.tasks.length }}</t-tag>
             <t-button
               v-if="taskStore.tasks.length > 0"
               variant="text"
@@ -157,148 +95,163 @@
               :disabled="clearingAll"
               @click="onClearAllClick"
             >
-              <template #icon><t-icon name="delete" /></template>
-              清空
+              <t-icon name="delete" />
             </t-button>
           </div>
-        </template>
-
-        <div class="flex-1 overflow-auto -mx-2 px-2 custom-scrollbar">
-          <div v-if="taskStore.tasks.length === 0" class="h-full flex flex-col items-center justify-center text-gray-400">
-            <t-icon name="link-unlink" size="48px" class="mb-4 opacity-50" />
-            <p>暂无待处理链接</p>
-            <p class="text-xs mt-2">请在上方控制面板中识别链接</p>
-          </div>
-
-          <div v-else class="space-y-3">
-            <div
-              v-for="task in taskStore.tasks"
-              :key="task.id"
-              class="bg-surface rounded-xl border border-border p-3"
-            >
-              <div class="flex items-start gap-3">
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <!-- 优先显示 displayText (任务名/标题)，如果未定义才显示 URL -->
-                    <div class="text-sm font-bold text-gray-900 truncate" :title="task.name || task.displayText || task.url">
-                      {{ task.name || task.displayText || task.url }}
-                    </div>
-                    <t-icon v-if="task.status === 'running'" name="loading" class="text-gray-400 animate-spin" />
+        </div>
+        <div class="card-body card-body--scroll">
+          <div class="task-list-compact scroll-container">
+            <div v-if="taskStore.tasks.length === 0" class="empty-state-compact">
+              <t-icon name="link-unlink" size="32px" class="mb-2 text-gray-300" />
+              <p class="text-gray-500 text-sm">暂无待处理</p>
+            </div>
+            <div v-else class="space-y-2">
+              <div
+                v-for="task in taskStore.tasks.slice(0, 4)"
+                :key="task.id"
+                class="task-item-compact"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <t-icon v-if="task.status === 'running'" name="loading" class="text-gray-400 animate-spin" size="14" />
                     <t-tag size="small" variant="light" :theme="statusTheme(task.status)">{{ statusLabel(task.status) }}</t-tag>
+                    <span class="text-sm text-gray-900 truncate">{{ task.name || task.displayText || task.url }}</span>
                   </div>
-                  <div class="mt-1 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
-                    <span class="truncate" :title="task.type === 'video' ? task.url : task.name">
-                       <!-- 如果是单视频，第二行显示 BV 号或 URL；如果是 UP 主任务，显示 UP 主名称 -->
-                      {{ task.type === 'video' ? (task.id.startsWith('video::') ? task.id.split('::')[1] : task.url) : `UP：${truncate(task.name, 16)}` }}
-                    </span>
-                    <span v-if="task.videoCount">视频数：{{ task.videoCount }}</span>
-                    <span v-if="task.totalSeconds">合计：{{ formatHms(task.totalSeconds) }}</span>
-                  </div>
-
-                  <div v-if="task.status === 'running' || task.status === 'done'" class="mt-2">
-                    <t-progress :percentage="taskProgress(task)" />
+                  <div class="flex items-center gap-0.5 flex-shrink-0">
+                    <t-button size="small" variant="text" shape="square" @click="goFilesForUp(task)">
+                      <t-icon name="folder-open" size="14" />
+                    </t-button>
+                    <t-button
+                      size="small"
+                      variant="text"
+                      shape="square"
+                      @click="toggleSingleTask(task)"
+                      :disabled="task.status === 'running'"
+                    >
+                      <t-icon :name="task.status === 'done' ? 'refresh' : 'play-circle'" size="14" />
+                    </t-button>
+                    <t-button
+                      size="small"
+                      variant="text"
+                      theme="danger"
+                      shape="square"
+                      :loading="terminatingIds.has(task.id)"
+                      :disabled="terminatingIds.has(task.id)"
+                      @click="onCancelTaskClick(task)"
+                    >
+                      <t-icon name="close" size="14" />
+                    </t-button>
                   </div>
                 </div>
-
-                <div class="flex items-center gap-1 flex-shrink-0">
-                  <t-button
-                    size="small"
-                    theme="default"
-                    variant="outline"
-                    @click="goFilesForUp(task)"
-                  >
-                    <template #icon><t-icon name="folder-open" /></template>
-                    查看文件
-                  </t-button>
-                  <t-button
-                    size="small"
-                    theme="primary"
-                    variant="outline"
-                    @click="toggleSingleTask(task)"
-                    :disabled="task.status === 'running'"
-                  >
-                    <template #icon>
-                      <t-icon :name="task.status === 'done' ? 'refresh' : 'play-circle'" />
-                    </template>
-                    {{ task.status === 'running' ? '处理中' : (task.status === 'done' ? '重新处理' : '开始') }}
-                  </t-button>
-                  <t-button
-                    size="small"
-                    theme="danger"
-                    variant="text"
-                    shape="square"
-                    aria-label="取消任务"
-                    :loading="terminatingIds.has(task.id)"
-                    :disabled="terminatingIds.has(task.id)"
-                    @click="onCancelTaskClick(task)"
-                  >
-                    <t-icon name="close" />
-                  </t-button>
-                </div>
+                <t-progress v-if="task.status === 'running'" :percentage="taskProgress(task)" size="small" class="mt-1" />
               </div>
             </div>
           </div>
         </div>
-        
-        <div class="pt-4 mt-auto border-t border-border" />
-      </t-card>
       </div>
+    </t-card>
 
-      <!-- 最近活动 -->
-      <t-card title="最近活动" :bordered="false" class="shadow-ui">
-        <template #actions>
-          <t-button variant="text" size="small" @click="goHistory">查看全部</t-button>
-        </template>
-        <t-list :split="false">
-          <t-list-item v-for="(activity, i) in activities" :key="i">
-            <template #action>
-              <t-icon name="chevron-right" />
-            </template>
-            <div class="flex items-center w-full">
-              <div :class="`w-8 h-8 rounded flex items-center justify-center mr-3 bg-${activity.color}-50 text-${activity.color}-600`">
-                <t-icon :name="activity.icon" />
+    <t-card :bordered="false" class="grid-card">
+      <div class="card-container">
+        <div class="card-header">
+          <span class="text-base font-bold text-gray-900">系统实时日志</span>
+          <t-button variant="text" shape="square" @click="clearLogs">
+            <t-icon name="delete" />
+          </t-button>
+        </div>
+        <div class="card-body">
+          <SystemLogs
+            :logs="logs"
+            empty-text="等待系统输出..."
+            :padding-size="12"
+            persist-scroll-key="system-logs"
+          />
+        </div>
+      </div>
+    </t-card>
+
+    <t-card :bordered="false" class="grid-card">
+      <div class="card-container">
+        <div class="card-header">
+          <span class="text-base font-bold text-gray-900">最近活动</span>
+          <t-button variant="text" size="small" @click="goHistory">全部</t-button>
+        </div>
+        <div class="card-body card-body--scroll">
+          <div class="activity-grid-compact scroll-container">
+            <div
+              v-for="item in activities"
+              :key="item.title"
+              class="activity-item-compact"
+              @click="onActivityClick(item)"
+            >
+              <div class="flex items-center gap-2 min-w-0">
+                <t-icon :name="item.icon" :class="`text-${item.color}-600`" size="16" />
+                <span class="text-sm text-gray-900 truncate flex-1">{{ item.title }}</span>
               </div>
-              <div class="flex-1">
-                <div class="text-sm font-bold text-gray-900">{{ activity.title }}</div>
-                <div class="text-xs text-gray-500">{{ activity.time }}</div>
-              </div>
+              <span class="text-xs text-gray-400 flex-shrink-0">{{ item.time }}</span>
             </div>
-          </t-list-item>
-        </t-list>
-      </t-card>
-    </div>
+            <div v-if="activities.length === 0" class="activity-empty-compact">
+              <t-icon name="time" size="28px" class="mb-2 text-gray-300" />
+              <p class="text-gray-400 text-sm">暂无活动</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </t-card>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { useTaskStore } from '../store/task'
 import { http } from '../api/http'
 import { terminateTask, batchTerminateTasks } from '../api/tasks'
 import { useRouter } from 'vue-router'
+import SystemLogs from '../components/SystemLogs.vue'
+
+interface Task {
+  id: string
+  name?: string
+  type?: string
+  status?: string
+  extra?: Record<string, unknown>
+  displayText?: string
+  url?: string
+  outputPath?: string
+  outputName?: string
+}
+
+interface BilibiliVideoItem {
+  bvId: string
+  url: string
+}
+
+interface ActivityItem {
+  icon: string
+  color: string
+  title: string
+  time: string
+}
 
 const taskStore = useTaskStore()
 const router = useRouter()
-const status = ref('就绪')
-const logs = ref('')
-const cpuUsage = ref(0)
-const memoryUsage = ref(0)
-const gpuUsage = ref(0)
-const gpuMemory = ref(0)
-const progress = ref(0)
 
-const videoCount = ref(0)
-const noteCount = ref(0)
+const status = ref<string>('就绪')
+const logs = ref<string>('')
+const cpuUsage = ref<number>(0)
+const memoryUsage = ref<number>(0)
+const gpuUsage = ref<number>(0)
+const gpuMemory = ref<number>(0)
+const progress = ref<number>(0)
 
-const linkInput = ref('')
-const linkInputStatus = ref('default')
-const linkInputTips = ref('')
-const recognizing = ref(false)
-const linkInputRef = ref(null)
+const linkInput = ref<string>('')
+const linkInputStatus = ref<'default' | 'success' | 'error'>('default')
+const linkInputTips = ref<string>('')
+const recognizing = ref<boolean>(false)
+const linkInputRef = ref<unknown>(null)
 
-const hasValidLinkInput = computed(() => {
-  // 同时检查 UP 主主页链接和视频链接 (BV号)
+const hasValidLinkInput = computed<boolean>(() => {
   const upUrls = extractBilibiliSpaceUrls(linkInput.value)
   if (upUrls.length > 0) return true
   
@@ -306,7 +259,7 @@ const hasValidLinkInput = computed(() => {
   return videoItems.length > 0
 })
 
-const formatHms = (totalSeconds) => {
+const formatHms = (totalSeconds: unknown): string => {
   const s = Math.max(0, Math.floor(Number(totalSeconds) || 0))
   const hh = String(Math.floor(s / 3600)).padStart(2, '0')
   const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0')
@@ -314,42 +267,48 @@ const formatHms = (totalSeconds) => {
   return `${hh}:${mm}:${ss}`
 }
 
-const formatUploadDate = (v) => {
+const formatUploadDate = (v: unknown): string => {
   const s = String(v || '')
   if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}`
   return s
 }
 
-const truncate = (text, maxLen) => {
+const truncate = (text: unknown, maxLen: number): string => {
   const t = String(text || '')
   if (t.length <= maxLen) return t
   return `${t.slice(0, Math.max(0, maxLen - 1))}…`
 }
 
-const statusLabel = (s) => {
-  if (s === 'running') return '处理中'
-  if (s === 'paused') return '已暂停'
-  if (s === 'done') return '已完成'
-  if (s === 'failed') return '失败'
-  return '等待中'
+const statusLabel = (s: string): string => {
+  const labels: Record<string, string> = {
+    running: '处理中',
+    paused: '已暂停',
+    done: '已完成',
+    failed: '失败',
+    waiting: '等待中',
+    pending: '等待中'
+  }
+  return labels[s] || '等待中'
 }
 
-const statusTheme = (s) => {
-  if (s === 'running') return 'primary'
-  if (s === 'paused') return 'warning'
-  if (s === 'done') return 'success'
-  if (s === 'failed') return 'danger'
-  return 'default'
+const statusTheme = (s: string): string => {
+  const themes: Record<string, string> = {
+    running: 'primary',
+    paused: 'warning',
+    done: 'success',
+    failed: 'danger'
+  }
+  return themes[s] || 'default'
 }
 
-const focusLinkInput = async () => {
+const focusLinkInput = async (): Promise<void> => {
   await nextTick()
   const maybeFocus = linkInputRef.value?.focus
   if (typeof maybeFocus === 'function') {
     maybeFocus()
     return
   }
-  const el = linkInputRef.value?.$el
+  const el = (linkInputRef.value as { $el?: HTMLElement })?.$el
   if (el?.scrollIntoView) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
@@ -357,7 +316,7 @@ const focusLinkInput = async () => {
   if (input) input.focus()
 }
 
-const extractBilibiliSpaceUrls = (text) => {
+const extractBilibiliSpaceUrls = (text: string): string[] => {
   const normalized = String(text || '')
   const matches = normalized.match(/https?:\/\/(?:space|www)\.bilibili\.com\/\d+/g)
   if (matches && matches.length > 0) return Array.from(new Set(matches))
@@ -366,35 +325,33 @@ const extractBilibiliSpaceUrls = (text) => {
   return Array.from(new Set(uidMatches)).map(uid => `https://space.bilibili.com/${uid}`)
 }
 
-const extractBilibiliVideoItems = (text) => {
+const extractBilibiliVideoItems = (text: string): BilibiliVideoItem[] => {
   const normalized = String(text || '')
-  const matches = normalized.match(/https?:\/\/(?:www\.)?bilibili\.com\/video\/(BV[0-9A-Za-z]+)/g)
-  const bvMatches = normalized.match(/\b(BV[0-9A-Za-z]{8,})\b/g)
-  const items = []
-  if (matches && matches.length > 0) {
-    for (const m of matches) {
-      const mm = m.match(/\/video\/(BV[0-9A-Za-z]+)/)
-      if (!mm) continue
-      items.push({ bvId: mm[1], url: `https://www.bilibili.com/video/${mm[1]}` })
+  const items: BilibiliVideoItem[] = []
+
+  const videoUrlRegex = /https?:\/\/(?:www\.)?bilibili\.com\/video\/(BV[0-9A-Za-z]+)[^]*/g
+  let match: RegExpExecArray | null
+  while ((match = videoUrlRegex.exec(normalized)) !== null) {
+    const bvId = match[1]
+    const fullUrl = match[0].split('#')[0]
+    if (!items.find(i => i.bvId === bvId)) {
+      items.push({ bvId, url: fullUrl })
     }
   }
-  if (bvMatches && bvMatches.length > 0) {
-    for (const bvId of bvMatches) {
-      items.push({ bvId, url: `https://www.bilibili.com/video/${bvId}` })
+
+  const bvOnlyRegex = /\b(BV[0-9A-Za-z]{8,})\b/g
+  while ((match = bvOnlyRegex.exec(normalized)) !== null) {
+    const bvId = match[1]
+    const url = `https://www.bilibili.com/video/${bvId}`
+    if (!items.find(i => i.bvId === bvId)) {
+      items.push({ bvId, url })
     }
   }
-  const seen = new Set()
-  const deduped = []
-  for (const it of items) {
-    const key = it?.bvId || it?.url
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    deduped.push(it)
-  }
-  return deduped
+
+  return items
 }
 
-const recognizeLinks = async () => {
+const recognizeLinks = async (): Promise<void> => {
   const raw = linkInput.value.trim()
   if (!raw) {
     linkInputStatus.value = 'error'
@@ -404,16 +361,14 @@ const recognizeLinks = async () => {
     return
   }
 
-  const urls = extractBilibiliSpaceUrls(raw) // 提取 UP 主链接
+  const urls = extractBilibiliSpaceUrls(raw)
 
   if (urls.length > 0) {
-    // 优先处理 UP 主主页链接
     recognizing.value = true
     linkInputStatus.value = 'default'
     linkInputTips.value = ''
 
     let successCount = 0
-    let lastErrorMessage = ''
     try {
       for (const url of urls) {
         try {
@@ -424,7 +379,6 @@ const recognizeLinks = async () => {
           taskStore.addUpTaskFromUpVideos(response.data, url, videos)
           successCount += 1
         } catch (e) {
-          lastErrorMessage = e?.userMessage || e?.message || lastErrorMessage
           continue
         }
       }
@@ -446,7 +400,6 @@ const recognizeLinks = async () => {
     }
   }
 
-  // 如果没有识别到 UP 主链接，尝试识别单个视频链接
   const videoItems = extractBilibiliVideoItems(raw)
   if (videoItems.length > 0) {
     recognizing.value = true
@@ -457,13 +410,10 @@ const recognizeLinks = async () => {
     try {
       for (const item of videoItems) {
         let title = `视频 ${item.bvId}`
-        let duration = 0
-        let uploadDate = null
         try {
            const metaResp = await http.get('/api/video_meta', { params: { bvid: item.bvId } })
            if (metaResp.data?.title) {
              title = metaResp.data.title
-             duration = metaResp.data.duration || 0
            }
         } catch (e) {
            console.warn('获取视频详情失败，将使用默认信息', e)
@@ -471,9 +421,8 @@ const recognizeLinks = async () => {
         
         taskStore.addVideoTask({
           bvId: item.bvId,
-          title: title,
-          url: item.url,
-          duration: duration,
+          title,
+          url: item.url
         }, item.url)
         successCount += 1
       }
@@ -495,27 +444,32 @@ const recognizeLinks = async () => {
     }
   }
 
-  // 既不是 UP 主也不是视频链接
   linkInputStatus.value = 'error'
   linkInputTips.value = '请输入有效的 B 站 UP 主主页链接、UID 或视频链接'
   MessagePlugin.error('未识别到可用链接')
   await focusLinkInput()
 }
 
-const terminatingIds = ref(new Set())
-const clearingAll = ref(false)
-const debounce = (fn, delay) => {
-  let t = null
-  return (...args) => {
+const terminatingIds = ref<Set<string>>(new Set())
+const clearingAll = ref<boolean>(false)
+
+const debounce = <T extends (...args: unknown[]) => unknown>(
+  fn: T, 
+  delay: number
+): ((...args: Parameters<T>) => void) => {
+  let t: ReturnType<typeof setTimeout> | null = null
+  return (...args: Parameters<T>) => {
     if (t) clearTimeout(t)
     t = setTimeout(() => fn(...args), delay)
   }
 }
-const showFixedError = (msg) => {
+
+const showFixedError = (msg: string): void => {
   MessagePlugin.error({ content: msg, duration: 5000 })
 }
-const onCancelTaskClick = debounce(async (task) => {
-  const confirm = DialogPlugin.confirm({
+
+const onCancelTaskClick = debounce(async (task: Task): Promise<void> => {
+  const confirmDialog = DialogPlugin.confirm({
     header: '确认取消',
     body: '确定要取消并移除此任务吗？',
     confirmBtn: '取消任务',
@@ -526,7 +480,7 @@ const onCancelTaskClick = debounce(async (task) => {
         await terminateTask(task.id)
         taskStore.markTaskTerminated(task.id)
         taskStore.removeTask(task.id)
-        const poll = async () => {
+        const poll = async (): Promise<void> => {
           try {
             const r = await http.get(`/api/task/${encodeURIComponent(task.id)}/status`)
             if (String(r.data?.status || '') !== 'terminated') {
@@ -541,24 +495,19 @@ const onCancelTaskClick = debounce(async (task) => {
         showFixedError('任务终止失败，请刷新后重试')
       } finally {
         terminatingIds.value.delete(task.id)
-        confirm.destroy()
+        confirmDialog.destroy()
       }
     },
     onClose: () => {
-      confirm.destroy()
+      confirmDialog.destroy()
     },
   })
 }, 300)
 
-const hydratingDurations = ref(false)
+const hydrateEstimatedDurations = async (): Promise<void> => {}
 
-const hydrateEstimatedDurations = async () => {}
-
-const goFilesForUp = (task) => {
-  // 如果是视频任务，跳转时带上 keyword 而不是 up
-  // 如果是 UP 主任务，task.name 就是 UP 主名称
+const goFilesForUp = (task: Task): void => {
   if (task.type === 'video') {
-    // 优先使用文件名，因为视频任务的名称可能只是标题
     const keyword = task.name || ''
     if (keyword) {
       router.push({ path: '/files', query: { keyword: encodeURIComponent(keyword) } })
@@ -575,9 +524,11 @@ const goFilesForUp = (task) => {
   }
 }
 
-const onClearAllClick = debounce(() => {
+const onClearAllClick = debounce((): void => {
   const list = Array.isArray(taskStore.tasks) ? taskStore.tasks : []
-  const pendingIds = list.filter(t => t && (t.status === 'waiting' || t.status === 'pending')).map(t => t.id)
+  const pendingIds = list
+    .filter((t): t is Task => t && (t.status === 'waiting' || t.status === 'pending'))
+    .map(t => t.id)
   if (pendingIds.length === 0) return
   const instance = DialogPlugin.confirm({
     header: '确认清空',
@@ -606,10 +557,10 @@ const onClearAllClick = debounce(() => {
   })
 }, 300)
 
-const downloadTaskDoc = async (task) => {
+const downloadTaskDoc = async (task: Task): Promise<void> => {
   try {
-    let outputPath = task?.outputPath
-    let outputName = task?.outputName
+    let outputPath = task.outputPath
+    let outputName = task.outputName
 
     if (!outputPath) {
       const outResp = await http.get('/api/task/output', { params: { taskId: task.id } })
@@ -642,10 +593,10 @@ const downloadTaskDoc = async (task) => {
   }
 }
 
-const currentTaskId = ref(null)
-const autoStarting = ref(false)
+const currentTaskId = ref<string | null>(null)
+const autoStarting = ref<boolean>(false)
 
-const taskProgress = (task) => {
+const taskProgress = (task: Task): number => {
   if (task?.status === 'done') return 100
   if (task?.status === 'running' && currentTaskId.value && task.id === currentTaskId.value) {
     return Math.max(0, Math.min(100, Number(progress.value) || 0))
@@ -653,16 +604,16 @@ const taskProgress = (task) => {
   return 0
 }
 
-const findNextWaitingTask = () => {
+const findNextWaitingTask = (): Task | null => {
   const list = Array.isArray(taskStore.tasks) ? taskStore.tasks : []
   const waiting = list
-    .filter(t => t && t.status === 'waiting' && t.type === 'up' && t.uid && t.name)
+    .filter((t): t is Task => t && t.status === 'waiting' && t.type === 'up' && t.uid && t.name)
     .slice()
     .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0))
   return waiting[0] || null
 }
 
-const maybeMarkOrphanRunningAsFailed = () => {
+const maybeMarkOrphanRunningAsFailed = (): void => {
   if (status.value === '运行中') return
   if (currentTaskId.value) return
   const now = Date.now()
@@ -674,14 +625,17 @@ const maybeMarkOrphanRunningAsFailed = () => {
   }
 }
 
-const startTaskBackend = async (task, force, silent) => {
+const startTaskBackend = async (
+  task: Task, 
+  force: boolean, 
+  silent: boolean
+): Promise<boolean> => {
   try {
     if (task.type === 'video') {
       const videoInfo = task.extra || {}
-      // 构造视频任务请求
       const payload = {
         taskId: task.id,
-        upName: '独立视频', // 单视频任务默认存放目录
+        upName: '独立视频',
         force: !!force,
         video: {
           bvId: videoInfo.bvId || (task.id.startsWith('video::') ? task.id.split('::')[1] : ''),
@@ -689,12 +643,11 @@ const startTaskBackend = async (task, force, silent) => {
           url: task.sourceUrl,
           uploadDate: videoInfo.uploadDate || null,
           duration: task.totalSeconds || null,
-          uploader: videoInfo.uploader || null // 传递 UP 主名称
+          uploader: videoInfo.uploader || null
         }
       }
       await http.post('/api/video/start', payload)
     } else {
-      // UP 主任务请求
       await http.post('/api/task/start', { taskId: task.id, name: task.name, uid: task.uid, force: !!force })
     }
     
@@ -708,7 +661,7 @@ const startTaskBackend = async (task, force, silent) => {
   }
 }
 
-const maybeAutoStartNext = async (silent) => {
+const maybeAutoStartNext = async (silent: boolean): Promise<void> => {
   if (autoStarting.value) return
   if (recognizing.value) return
   if (status.value === '运行中') return
@@ -723,7 +676,7 @@ const maybeAutoStartNext = async (silent) => {
   }
 }
 
-const toggleSingleTask = (task) => {
+const toggleSingleTask = (task: Task): void => {
   if (task.status === 'running') return
 
   const force = task.status === 'done'
@@ -733,23 +686,24 @@ const toggleSingleTask = (task) => {
   startTaskBackend(task, force, false)
 }
 
-const recentHistory = ref([])
-const activities = computed(() => {
-  return recentHistory.value.slice(0, 6).map((h) => {
-    const ok = h?.status === '成功'
+const recentHistory = ref<unknown[]>([])
+const activities = computed<ActivityItem[]>(() => {
+  return recentHistory.value.slice(0, 4).map((h: unknown) => {
+    const historyItem = h as { status?: string; title?: string; timestamp?: string }
+    const ok = historyItem?.status === '成功'
     return {
       icon: ok ? 'check-circle' : 'close-circle',
       color: ok ? 'green' : 'red',
-      title: `${ok ? '完成' : '失败'}：${h?.title || '未知视频'}`,
-      time: h?.timestamp || '',
+      title: `${ok ? '完成' : '失败'}：${historyItem?.title || '未知视频'}`,
+      time: historyItem?.timestamp || '',
     }
   })
 })
 
-let statusPollInterval = null
+let statusPollInterval: ReturnType<typeof setInterval> | null = null
 let historyPollCounter = 4
 
-const updateStatus = async () => {
+const updateStatus = async (): Promise<void> => {
   try {
     const prevCurrentTaskId = currentTaskId.value
     const response = await http.get('/api/status')
@@ -783,10 +737,12 @@ const updateStatus = async () => {
     historyPollCounter += 1
     if (historyPollCounter % 5 === 0) {
       const hr = await http.get('/api/history')
-      recentHistory.value = Array.isArray(hr.data) ? hr.data.slice().reverse() : []
-      videoCount.value = Array.isArray(hr.data) ? hr.data.length : 0
-      const fr = await http.get('/api/files')
-      noteCount.value = Array.isArray(fr.data?.files) ? fr.data.files.length : 0
+      const data = Array.isArray(hr.data) ? hr.data : []
+      recentHistory.value = data.sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.timestamp || 0).getTime()
+        const timeB = new Date(b.createdAt || b.timestamp || 0).getTime()
+        return timeB - timeA
+      })
     }
     maybeMarkOrphanRunningAsFailed()
     maybeAutoStartNext(true)
@@ -795,11 +751,15 @@ const updateStatus = async () => {
   }
 }
 
-const goHistory = () => {
+const goHistory = (): void => {
   router.push('/history')
 }
 
-const stopProcess = async () => {
+const onActivityClick = ({ item }: { item: ActivityItem }): void => {
+  console.log('Activity clicked:', item)
+}
+
+const stopProcess = async (): Promise<void> => {
   try {
     await http.post('/api/stop')
     status.value = '已停止'
@@ -810,26 +770,23 @@ const stopProcess = async () => {
   }
 }
 
-const clearLogs = () => {
+const clearLogs = (): void => {
   logs.value = ''
 }
 
-const hasGpu = computed(() => gpuUsage.value > 0 || gpuMemory.value > 0)
+const hasGpu = computed<boolean>(() => gpuUsage.value > 0 || gpuMemory.value > 0)
 
-const formatNumber = (num) => {
+const formatNumber = (num: number): string => {
   if (!num) return '未知'
   if (num >= 10000) {
     return (num / 10000).toFixed(1) + '万'
   }
-  return num
+  return String(num)
 }
-
- 
 
 onMounted(() => {
   updateStatus()
   hydrateEstimatedDurations()
-  // 缩短刷新间隔以提高实时性 (2000ms -> 1000ms)
   statusPollInterval = setInterval(updateStatus, 1000)
 })
 
@@ -839,3 +796,190 @@ onUnmounted(() => {
   }
 })
 </script>
+
+<style scoped>
+.control-panel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 24px;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.grid-card {
+  min-height: 0;
+  height: 100%;
+}
+
+.grid-card :deep(.t-card__body) {
+  flex: 1 !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  height: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 16px !important;
+  overflow: hidden !important;
+}
+
+.grid-card :deep(.t-card__header) {
+  padding: 12px 16px !important;
+  flex-shrink: 0 !important;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.card-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.card-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.card-body--scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scroll-container::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.scroll-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll-container::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.4);
+  border-radius: 2px;
+}
+
+.task-list-compact,
+.activity-grid-compact {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.empty-state-compact {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+}
+
+.task-item-compact {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background-color: #f8fafc;
+  transition: all 0.15s ease;
+  animation: slideIn 0.2s ease-out;
+}
+
+.task-item-compact:hover {
+  background-color: #f1f5f9;
+}
+
+.activity-item-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 0;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.activity-item-compact:hover {
+  background-color: #f8fafc;
+}
+
+.activity-empty-compact {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+}
+
+.status-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1023px) {
+  .control-panel-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(4, minmax(200px, auto));
+    gap: 16px;
+  }
+}
+
+@media (max-width: 639px) {
+  .control-panel-grid {
+    gap: 12px;
+  }
+
+  .grid-card :deep(.t-card__header) {
+    padding: 10px 12px !important;
+  }
+
+  .grid-card :deep(.t-card__body) {
+    padding: 12px !important;
+  }
+}
+</style>

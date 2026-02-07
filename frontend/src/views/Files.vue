@@ -17,13 +17,12 @@
     </t-card>
 
     <!-- 文件列表 -->
-    <t-card :bordered="false" class="flex-1 overflow-hidden flex flex-col relative">
-      <div class="mb-4 flex gap-3 items-center">
+    <t-card :bordered="false" class="files-card flex-1 flex flex-col relative">
+      <div class="files-card-header mb-4 flex gap-3 items-center flex-shrink-0">
         <div class="flex items-center gap-3">
           <t-input v-model="searchQuery" placeholder="搜索文件..." class="w-64" clearable>
             <template #prefix-icon><t-icon name="search" /></template>
           </t-input>
-          <!-- 新增：支持实时搜索的输入型筛选组件（与搜索框高度一致） -->
           <SearchSelect
             :model-value="filterValue.up || []"
             :options="upOptions"
@@ -39,18 +38,18 @@
         </div>
       </div>
 
-      <div class="flex-1 overflow-auto pb-16 task-list-container">
-        <t-table
-          :data="filteredFiles"
-          :columns="columns"
-          row-key="path"
-          hover
-          :pagination="pagination"
-          :selected-row-keys="selectedRowKeys"
-          @select-change="onSelectChange"
-          :filter-value="filterValue"
-          @filter-change="onFilterChange"
-        >
+      <div class="files-card-body flex-1 min-h-0 flex flex-col">
+        <div class="files-table-wrapper flex-1 overflow-hidden">
+          <t-table
+            :data="paginatedFiles"
+            :columns="columns"
+            row-key="path"
+            hover
+            :selected-row-keys="selectedRowKeys"
+            @select-change="onSelectChange"
+            :filter-value="filterValue"
+            @filter-change="onFilterChange"
+          >
           <template #name="{ row }">
             <div class="flex items-center">
               <div class="w-8 h-8 rounded bg-blue-50 text-blue-600 flex items-center justify-center mr-3 flex-shrink-0">
@@ -93,6 +92,20 @@
             </div>
           </template>
         </t-table>
+        </div>
+
+        <!-- 固定底部分页器 -->
+        <div class="fixed-pagination-wrapper">
+          <t-pagination
+            v-model:current="currentPage"
+            v-model:pageSize="pageSize"
+            :total="filteredFiles.length"
+            :show-jumper="true"
+            :page-size-options="pageSizeOptions"
+            @change="onPageChange"
+            @page-size-change="onPageSizeChange"
+          />
+        </div>
       </div>
 
       <!-- 悬浮操作栏 -->
@@ -242,12 +255,14 @@ const columns = computed(() => [
   { colKey: 'op', title: '操作', width: '140', align: 'right', fixed: 'right' },
 ])
 
-const pagination = computed(() => ({
-  defaultPageSize: 10,
-  totalContent: false,
-  showJumper: true,
-  total: filteredFiles.value.length
-}))
+const currentPage = ref(1)
+const pageSize = ref(10)
+const pageSizeOptions = [
+  { label: '10 条/页', value: 10 },
+  { label: '20 条/页', value: 20 },
+  { label: '50 条/页', value: 50 },
+  { label: '100 条/页', value: 100 },
+]
 
 const upOptions = computed(() => {
   // 从文件列表动态提取 UP 主列表，确保选项真实存在
@@ -291,6 +306,29 @@ const filteredFiles = computed(() => {
   })
   
   return result
+})
+
+const paginatedFiles = computed(() => {
+  const start = Math.max(0, (currentPage.value - 1) * pageSize.value)
+  return filteredFiles.value.slice(start, start + pageSize.value)
+})
+
+const onPageChange = (info) => {
+  const nextPage = typeof info === 'object' && info ? Number(info.current) || Number(info) : Number(info)
+  const maxPage = Math.max(1, Math.ceil(filteredFiles.value.length / pageSize.value))
+  currentPage.value = Math.min(Math.max(1, nextPage || 1), maxPage)
+}
+
+const onPageSizeChange = (sizeOrInfo) => {
+  const next = typeof sizeOrInfo === 'object' && sizeOrInfo ? Number(sizeOrInfo.pageSize) || Number(sizeOrInfo) : Number(sizeOrInfo)
+  const val = next || 10
+  pageSize.value = val
+  currentPage.value = 1
+}
+
+watch([filteredFiles, pageSize], () => {
+  const maxPage = Math.max(1, Math.ceil(filteredFiles.value.length / pageSize.value))
+  if (currentPage.value > maxPage) currentPage.value = maxPage
 })
 
 const fetchFiles = async () => {
@@ -551,21 +589,190 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.task-list-container {
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+.files-page {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
-/* 隐藏 TDesign 表格自带的滚动条，使用外层容器滚动 */
-:deep(.t-table__content) {
-  overflow: visible !important;
+
+.files-card {
+  overflow: hidden;
 }
-:deep(.t-table--layout-fixed) {
-  height: auto !important;
+
+.files-card :deep(.t-card__body) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.files-card-header {
+  flex-shrink: 0;
+}
+
+.files-card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.files-table-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.files-table-wrapper :deep(.t-table) {
+  height: 100%;
+  overflow: auto;
+}
+
+.files-table-wrapper :deep(.t-table__content) {
+  overflow: auto !important;
 }
 
 .up-column-header {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.fixed-pagination-wrapper {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px 0;
+  margin-top: auto;
+  background: white;
+  border-top: 1px solid #e5e7eb;
+  z-index: 10;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__btn) {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__btn:hover:not(.t-is-disabled)) {
+  background-color: #f3f4f6;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__btn:active) {
+  background-color: #e5e7eb;
+  transform: scale(0.95);
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__btn.t-is-current) {
+  background-color: #0052D9;
+  color: white;
+  border-color: #0052D9;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__btn.t-is-current:hover) {
+  background-color: #0047C0;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__number) {
+  min-width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__number:hover:not(.t-is-current)) {
+  background-color: #f3f4f6;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__number:focus-visible) {
+  outline: 2px solid #0052D9;
+  outline-offset: 2px;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__number--more) {
+  cursor: default;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__select) {
+  min-width: 100px;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__select .t-input) {
+  border-radius: 6px;
+  height: 32px;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__input) {
+  width: 60px;
+  height: 32px;
+  border-radius: 6px;
+}
+
+.fixed-pagination-wrapper :deep(.t-pagination__jump) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.fixed-pagination-wrapper :deep(.t-input-adornment__text) {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+@media (max-width: 768px) {
+  .fixed-pagination-wrapper {
+    padding: 8px 0;
+  }
+
+  .fixed-pagination-wrapper :deep(.t-pagination) {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .fixed-pagination-wrapper :deep(.t-pagination__btn),
+  .fixed-pagination-wrapper :deep(.t-pagination__number) {
+    min-width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .fixed-pagination-wrapper :deep(.t-pagination__select) {
+    min-width: 80px;
+  }
+
+  .fixed-pagination-wrapper :deep(.t-pagination__input) {
+    width: 50px;
+    height: 28px;
+  }
+}
+
+@media print {
+  .fixed-pagination-wrapper {
+    display: none;
+  }
 }
 </style>

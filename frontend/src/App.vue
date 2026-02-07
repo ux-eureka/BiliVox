@@ -41,13 +41,9 @@
         </div>
       </t-header>
 
-      <t-content class="flex-1 overflow-auto bg-canvas relative">
-        <div class="w-full px-6 py-6">
-          <router-view v-slot="{ Component }">
-            <transition name="fade" mode="out-in">
-              <component :is="Component" />
-            </transition>
-          </router-view>
+      <t-content :class="contentClass" class="bg-canvas relative">
+        <div class="h-full w-full px-6 py-6 flex flex-col">
+          <router-view class="h-full" />
         </div>
       </t-content>
     </t-layout>
@@ -77,6 +73,14 @@ const activeValue = ref('/')
 const collapsed = ref(false)
 const taskStore = useTaskStore()
 let monitorTimer = null
+
+// 控制面板页面使用内部滚动，其他页面使用默认滚动
+const isControlPanel = computed(() => route.path === '/')
+const contentClass = computed(() => ({
+  'flex-1': true,
+  'overflow-hidden': isControlPanel.value,
+  'overflow-auto': !isControlPanel.value
+}))
 
 // 移动端适配
 const isMobile = ref(false)
@@ -112,6 +116,7 @@ const pollMonitor = async (notify) => {
 
 onMounted(() => {
   checkMobile()
+  initResizeObserver()
   window.addEventListener('resize', checkMobile)
   pollMonitor(false)
   monitorTimer = setInterval(() => pollMonitor(true), 10 * 60 * 1000)
@@ -119,11 +124,48 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
   if (monitorTimer) {
     clearInterval(monitorTimer)
     monitorTimer = null
   }
 })
+
+let resizeObserver = null
+
+const initResizeObserver = () => {
+  const root = document.documentElement
+  let lastHeight = window.innerHeight
+
+  const updateHeight = () => {
+    const currentHeight = window.innerHeight
+    if (Math.abs(currentHeight - lastHeight) > 2) {
+      lastHeight = currentHeight
+      requestAnimationFrame(() => {
+        root.style.setProperty('--window-height', `${currentHeight}px`)
+      })
+    }
+  }
+
+  window.addEventListener('resize', updateHeight)
+
+  window.matchMedia('(orientation: landscape)').addEventListener('change', () => {
+    requestAnimationFrame(() => {
+      root.style.setProperty('--window-height', `${window.innerHeight}px`)
+    })
+  })
+
+  const observer = new ResizeObserver(() => {
+    requestAnimationFrame(() => {
+      root.style.setProperty('--window-height', `${window.innerHeight}px`)
+    })
+  })
+
+  observer.observe(document.body)
+  resizeObserver = observer
+}
 
 const navigationItems = [
   { title: '控制面板', path: '/' },

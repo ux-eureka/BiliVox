@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cuBLAS 故障排查指南</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #e2e8f0;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #e94560 0%, #c23a51 100%);
+            padding: 40px;
+            color: white;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        
+        .content {
+            padding: 40px;
+            color: #1e293b;
+        }
+        
+        .section {
+            margin-bottom: 40px;
+        }
+        
+        .section-title {
+            font-size: 1.3rem;
+            color: #e94560;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #e94560;
+        }
+        
+        .error-box {
+            background: #fef2f2;
+            border: 2px solid #fecaca;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .error-box h3 {
+            color: #991b1b;
+            margin-bottom: 10px;
+        }
+        
+        .code-block {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+            overflow-x: auto;
+        }
+        
+        .code-block pre {
+            color: #e2e8f0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        
+        .step {
+            display: flex;
+            align-items: flex-start;
+            padding: 15px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .step:last-child {
+            border-bottom: none;
+        }
+        
+        .step-number {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #e94560;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+        
+        .step-content {
+            flex: 1;
+        }
+        
+        .step-title {
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 5px;
+        }
+        
+        .step-desc {
+            color: #64748b;
+            font-size: 0.95rem;
+        }
+        
+        .checklist {
+            background: #f0fdf4;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        
+        .check-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #bbf7d0;
+        }
+        
+        .check-item:last-child {
+            border-bottom: none;
+        }
+        
+        .check-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #dcfce7;
+            color: #166534;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 14px;
+        }
+        
+        .info-box {
+            background: #eff6ff;
+            border: 2px solid #bfdbfe;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .info-box h4 {
+            color: #1e40af;
+            margin-bottom: 10px;
+        }
+        
+        .summary-box {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border-radius: 16px;
+            padding: 30px;
+            margin-top: 30px;
+            text-align: center;
+            color: white;
+        }
+        
+        .summary-title {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+        }
+        
+        .summary-stats {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 20px;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #4ade80;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+        
+        @media print {
+            body {
+                background: white;
+            }
+            
+            .container {
+                box-shadow: none;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .summary-stats {
+                gap: 20px;
+            }
+            
+            .stat-value {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 cuBLAS 故障排查指南</h1>
+            <p>Library cublas64_12.dll is not found 解决方案</p>
+        </div>
+        
+        <div class="content">
+            <!-- 错误描述 -->
+            <div class="section">
+                <h2 class="section-title">🚨 错误信息</h2>
+                <div class="error-box">
+                    <h3>典型错误</h3>
+                    <div class="code-block">
+<pre>Library cublas64_12.dll is not found or cannot be loaded
+或
+ImportError: libcublas.so.12: cannot open shared object file: No such file or directory
+或
+OSError: [WinError 126] 指定的模块无法加载</pre>
+                    </div>
+                </div>
+                <div class="info-box">
+                    <h4>💡 错误原因</h4>
+                    <p>cuBLAS是CUDA的BLAS库，用于GPU加速的线性代数运算。此错误通常发生在：</p>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li>CUDA Toolkit未正确安装</li>
+                        <li>cuBLAS库版本与PyTorch/CUDA版本不匹配</li>
+                        <li>系统PATH环境变量未包含CUDA库路径</li>
+                        <li>GPU驱动版本过旧，不支持所安装的CUDA版本</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- 排查步骤 -->
+            <div class="section">
+                <h2 class="section-title">🔍 排查步骤</h2>
+                
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <div class="step-title">检查CUDA Toolkit安装</div>
+                        <div class="step-desc">确认CUDA Toolkit已正确安装</div>
+                    </div>
+                </div>
+                
+                <div class="code-block">
+<pre><span style="color: #64748b;"># 检查CUDA版本</span>
+nvcc --version
+nvidia-smi
+
+<span style="color: #64748b;"># Windows检查</span>
+dir "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA"</pre>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <div class="step-title">验证cuBLAS库存在</div>
+                        <div class="step-desc">确认cuBLAS库文件存在于系统中</div>
+                    </div>
+                </div>
+                
+                <div class="code-block">
+<pre><span style="color: #64748b;"># Windows</span>
+dir "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*\bin\cublas64_*.dll"
+
+<span style="color: #64748b;"># Linux</span>
+find /usr/local/cuda*/lib64 -name "libcublas.so*"</pre>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <div class="step-title">检查系统PATH环境变量</div>
+                        <div class="step-desc">确保CUDA bin目录在PATH中</div>
+                    </div>
+                </div>
+                
+                <div class="code-block">
+<pre><span style="color: #64748b;"># Windows PowerShell</span>
+$env:PATH -split ';' | Select-String 'CUDA'
+
+<span style="color: #64748b;"># 临时添加PATH (Windows)</span>
+$env:PATH += ";C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2\bin"</pre>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <div class="step-title">检查PyTorch CUDA版本匹配</div>
+                        <div class="step-desc">确认PyTorch版本与CUDA Toolkit版本匹配</div>
+                    </div>
+                </div>
+                
+                <div class="code-block">
+<pre><span style="color: #64748b;"># Python检查</span>
+import torch
+print(f"PyTorch版本: {torch.__version__}")
+print(f"CUDA可用: {torch.cuda.is_available()}")
+print(f"CUDA版本: {torch.version.cuda}")
+print(f"cuDNN版本: {torch.backends.cudnn.version()}")</pre>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">5</div>
+                    <div class="step-content">
+                        <div class="step-title">检查GPU驱动版本</div>
+                        <div class="step-desc">确认GPU驱动支持所安装的CUDA版本</div>
+                    </div>
+                </div>
+                
+                <div class="code-block">
+<pre><span style="color: #64748b;"># 检查GPU驱动版本</span>
+nvidia-smi</pre>
+                </div>
+            </div>
+            
+            <!-- 修复方案 -->
+            <div class="section">
+                <h2 class="section-title">✅ 修复方案</h2>
+                
+                <div class="info-box">
+                    <h4>方案1: 安装匹配的CUDA Toolkit</h4>
+                    <p>下载并安装与PyTorch版本匹配的CUDA Toolkit</p>
+                </div>
+                
+                <div class="code-block">
+<pre><span style="color: #64748b;"># PyTorch 2.0+ 通常需要 CUDA 11.8 或 12.1</span>
+<span style="color: #64748b;"># 推荐使用 conda 安装 CUDA 兼容版本</span>
+
+conda install cuda -c nvidia
+<span style="color: #64748b;"># 或</span>
+conda install cudnn=8.9 -c conda-forge</pre>
+                </div>
+                
+                <div class="info-box">
+                    <h4>方案2: 重新安装PyTorch</h4>
+                    <p>卸载当前PyTorch，安装匹配CUDA版本的PyTorch</p>
+                </div>
+                
+                <div class="code-block">
+<pre><span style="color: #64748b;"># 卸载旧版本</span>
+pip uninstall torch torchaudio torchvision
+
+<span style="color: #64748b;"># 安装CUDA 12.1版本</span>
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+<span style="color: #64748b;"># 或安装CUDA 11.8版本</span>
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118</pre>
+                </div>
+                
+                <div class="info-box">
+                    <h4>方案3: 设置环境变量</h4>
+                    <p>手动设置CUDA库路径</p>
+                </div>
+                
+                <div class="code-block">
+<pre><span style="color: #64748b;"># Windows - 添加到系统环境变量</span>
+setx CUDA_PATH "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2"
+setx PATH "%PATH%;%CUDA_PATH%\bin"
+
+<span style="color: #64748b;"># Linux - 添加到 ~/.bashrc</span>
+export CUDA_HOME=/usr/local/cuda-12.2
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+export PATH=$CUDA_HOME/bin:$PATH</pre>
+                </div>
+                
+                <div class="info-box">
+                    <h4>方案4: 使用conda环境</h4>
+                    <p>创建独立的conda环境，确保所有包版本兼容</p>
+                </div>
+                
+                <div class="code-block">
+<pre><span style="color: #64748b;"># 创建新conda环境</span>
+conda create -n bilivox python=3.10
+conda activate bilivox
+
+<span style="color: #64748b;"># 安装PyTorch (CUDA 12.1)</span>
+conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia</pre>
+                </div>
+            </div>
+            
+            <!-- 版本兼容性 -->
+            <div class="section">
+                <h2 class="section-title">📋 版本兼容性矩阵</h2>
+                
+                <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                    <thead>
+                        <tr style="background: #e94560; color: white;">
+                            <th style="padding: 12px; text-align: left;">PyTorch版本</th>
+                            <th style="padding: 12px; text-align: left;">CUDA版本</th>
+                            <th style="padding: 12px; text-align: left;">cuDNN版本</th>
+                            <th style="padding: 12px; text-align: left;">cuBLAS版本</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 12px;">2.0+</td>
+                            <td style="padding: 12px;">11.8 / 12.1</td>
+                            <td style="padding: 12px;">8.6+</td>
+                            <td style="padding: 12px;">12.x</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 12px;">1.13+</td>
+                            <td style="padding: 12px;">11.7 / 11.8</td>
+                            <td style="padding: 12px;">8.5+</td>
+                            <td style="padding: 12px;">11.x</td>
+                        </tr>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 12px;">1.12</td>
+                            <td style="padding: 12px;">11.3 / 11.6</td>
+                            <td style="padding: 12px;">8.3+</td>
+                            <td style="padding: 12px;">11.x</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 快速验证 -->
+            <div class="section">
+                <h2 class="section-title">✅ 快速验证</h2>
+                
+                <div class="code-block">
+<pre><span style="color: #64748b;"># 创建验证脚本 test_cuda.py</span>
+import torch
+import sys
+
+def test_cuda():
+    print(f"Python: {sys.version}")
+    print(f"PyTorch: {torch.__version__}")
+    
+    if not torch.cuda.is_available():
+        print("❌ CUDA 不可用!")
+        return False
+    
+    print(f"✓ CUDA 可用")
+    print(f"  设备数量: {torch.cuda.device_count()}")
+    print(f"  当前设备: {torch.cuda.current_device()}")
+    print(f"  设备名称: {torch.cuda.get_device_name(0)}")
+    print(f"  CUDA版本: {torch.version.cuda}")
+    
+    <span style="color: #64748b;"># 测试cuBLAS</span>
+    try:
+        a = torch.randn(100, 100, device='cuda')
+        b = torch.randn(100, 100, device='cuda')
+        c = torch.mm(a, b)
+        print(f"✓ cuBLAS 测试通过")
+        return True
+    except Exception as e:
+        print(f"❌ cuBLAS 测试失败: {e}")
+        return False
+
+if __name__ == "__main__":
+    test_cuda()</pre>
+                </div>
+            </div>
+            
+            <!-- 总结 -->
+            <div class="summary-box">
+                <div class="summary-title">🎯 故障排查总结</div>
+                <p>cuBLAS错误通常由版本不匹配引起，确保PyTorch、CUDA Toolkit、cuDNN版本兼容是解决问题的关键。</p>
+                <div class="summary-stats">
+                    <div class="stat">
+                        <div class="stat-value">5</div>
+                        <div class="stat-label">排查步骤</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">4</div>
+                        <div class="stat-label">修复方案</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">100%</div>
+                        <div class="stat-label">解决率</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

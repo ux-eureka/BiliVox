@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col gap-6">
+  <div class="history-page h-full flex flex-col gap-6">
     <!-- 顶部统计卡片 -->
     <t-row :gutter="24">
       <t-col :span="3" :xs="6" :sm="6" :md="3">
@@ -56,16 +56,20 @@
       </t-col>
     </t-row>
 
-    <!-- 图表区域 -->
-    <t-row :gutter="24">
-      <t-col :span="8" :xs="12">
-        <t-card title="处理趋势 (近7天)" :bordered="false" class="h-80">
-          <v-chart class="h-full w-full" :option="trendOption" autoresize />
+    <!-- 图表区域 - 左右布局 -->
+    <t-row :gutter="24" class="chart-row">
+      <t-col :xs="12" :sm="12" :md="6" :lg="6" :xl="6">
+        <t-card title="处理趋势 (近7天)" :bordered="false" class="chart-card">
+          <div class="chart-container">
+            <v-chart class="chart-echarts" :option="trendOption" autoresize />
+          </div>
         </t-card>
       </t-col>
-      <t-col :span="4" :xs="12">
-        <t-card title="状态分布" :bordered="false" class="h-80">
-          <v-chart class="h-full w-full" :option="pieOption" autoresize />
+      <t-col :xs="12" :sm="12" :md="6" :lg="6" :xl="6">
+        <t-card title="状态分布" :bordered="false" class="chart-card">
+          <div class="chart-container">
+            <v-chart class="chart-echarts" :option="pieOption" autoresize />
+          </div>
         </t-card>
       </t-col>
     </t-row>
@@ -397,9 +401,49 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.history-page {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 图表区域 - 左右布局 */
+.chart-row {
+  min-height: 280px;
+}
+
+.chart-card {
+  height: 280px;
+}
+
+.chart-card :deep(.t-card__body) {
+  padding: 12px;
+  height: calc(100% - 57px);
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-echarts {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
 /* 确保图表容器有高度 */
 .v-chart {
   height: 100%;
   width: 100%;
+}
+
+/* 表格容器滚动 */
+:deep(.t-table) {
+  max-height: calc(100vh - 420px);
+  overflow-y: auto;
 }
 </style>

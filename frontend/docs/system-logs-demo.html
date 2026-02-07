@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统日志容器 - 垂直100%充满 + 内部滚动 Demo</title>
+    <style>
+        /* ========================================
+         * 关键 CSS - 实现垂直100%充满容器
+         * ======================================== */
+        
+        /* 1. 根节点必须声明高度 */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        
+        /* 2. 所有祖先节点必须明确声明高度 */
+        .page-container {
+            height: 100vh;
+            width: 100%;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background: #f1f5f9;
+        }
+        
+        .header {
+            height: 64px;
+            flex-shrink: 0;
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin: 0;
+        }
+        
+        /* 3. 父容器使用 Flex 布局 */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            padding: 24px;
+            gap: 24px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        
+        .card-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin: 0;
+        }
+        
+        /* ========================================
+         * 4. 系统日志容器 - 核心实现
+         * ======================================== */
+        
+        .logs-container {
+            /* 关键：flex: 1 让容器占满剩余空间 */
+            flex: 1;
+            /* 关键：min-height: 0 防止 flex 子元素撑开父容器 */
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* 5. 滚动内容区域 */
+        .scroll-content {
+            /* 关键：flex: 1 + height: 100% 实现100%充满 */
+            flex: 1;
+            height: 100%;
+            /* 关键：overflow-y: auto 实现内部滚动 */
+            overflow-y: auto;
+            overflow-x: hidden;
+            /* iOS 惯性滚动支持 */
+            -webkit-overflow-scrolling: touch;
+            /* 关键：box-sizing: border-box 确保 padding 不影响高度计算 */
+            box-sizing: border-box;
+            /* 4px 内边距，不影响高度计算 */
+            padding: 16px;
+            /* 自定义滚动条样式 */
+            scrollbar-width: thin;
+            scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+        }
+        
+        /* ========================================
+         * 6. 滚动条样式 - 与 UI 风格一致
+         * ======================================== */
+        
+        .scroll-content::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        
+        .scroll-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .scroll-content::-webkit-scrollbar-thumb {
+            background-color: rgba(148, 163, 184, 0.5);
+            border-radius: 3px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        
+        .scroll-content:hover::-webkit-scrollbar-thumb,
+        .scroll-content:focus-within::-webkit-scrollbar-thumb {
+            opacity: 1;
+        }
+        
+        .scroll-content::-webkit-scrollbar-thumb:hover {
+            background-color: rgba(100, 116, 139, 0.8);
+        }
+        
+        .scroll-content::-webkit-scrollbar-thumb:active {
+            background-color: rgba(71, 85, 105, 1);
+        }
+        
+        /* ========================================
+         * 7. 日志内容样式
+         * ======================================== */
+        
+        .logs-content {
+            /* 确保内容区域也是 box-sizing: border-box */
+            box-sizing: border-box;
+            min-height: 100%;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #d1d5db;
+            background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
+            border-radius: 8px;
+            padding: 1px 0;
+        }
+        
+        .logs-content pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        /* ========================================
+         * 8. 空状态样式
+         * ======================================== */
+        
+        .empty-state {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #9ca3af;
+            text-align: center;
+        }
+        
+        .empty-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+        
+        /* ========================================
+         * 演示控制面板
+         * ======================================== */
+        
+        .demo-controls {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .demo-controls h3 {
+            margin: 0 0 16px 0;
+            font-size: 0.9rem;
+            color: #374151;
+        }
+        
+        .control-group {
+            margin-bottom: 12px;
+        }
+        
+        .control-group label {
+            display: block;
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-bottom: 6px;
+        }
+        
+        .control-group input[type="range"] {
+            width: 100%;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+        
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+        
+        .btn-secondary {
+            background: #e5e7eb;
+            color: #374151;
+        }
+        
+        .btn-secondary:hover {
+            background: #d1d5db;
+        }
+        
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #059669;
+        }
+        
+        /* ========================================
+         * 9. 高度验证标记（调试用）
+         * ======================================== */
+        
+        .height-indicator {
+            position: absolute;
+            left: -30px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #ef4444;
+            opacity: 0;
+        }
+        
+        /* ========================================
+         * 响应式设计
+         * ======================================== */
+        
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 16px;
+            }
+            
+            .scroll-content::-webkit-scrollbar {
+                width: 4px;
+                height: 4px;
+            }
+            
+            .scroll-content {
+                padding: 12px;
+            }
+            
+            .demo-controls {
+                left: 16px;
+                right: 16px;
+                bottom: 16px;
+                max-width: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-container" id="pageContainer">
+        <!-- 头部 -->
+        <header class="header">
+            <h1>🎨 系统日志容器 Demo - 垂直100%充满</h1>
+        </header>
+        
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 系统日志卡片 -->
+            <div class="card" id="logsCard">
+                <div class="card-header">
+                    <h2 class="card-title">📋 系统实时日志</h2>
+                    <button class="btn btn-secondary" onclick="clearLogs()">清空</button>
+                </div>
+                
+                <!-- 关键：系统日志容器 -->
+                <div class="logs-container">
+                    <div class="scroll-content" id="scrollContent" role="log" aria-label="系统日志">
+                        <div class="logs-content">
+                            <pre id="logsDisplay">[16:16:12] 系统初始化开始...
+[16:16:12] 加载配置文件...
+[16:16:13] 配置加载完成
+[16:16:13] 初始化数据库连接...
+[16:16:14] 数据库连接成功
+[16:16:14] 加载核心模块...
+[16:16:15] 核心模块初始化完成（延迟加载模型）
+[16:16:15] 启动后台任务调度器...
+[16:16:16] 调度器已启动
+[16:16:16] 系统就绪，等待输入...</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 演示控制面板 -->
+    <div class="demo-controls">
+        <h3>🎛️ 演示控制台</h3>
+        
+        <div class="control-group">
+            <label>日志条目数量: <span id="logCount">10</span></label>
+            <input type="range" min="0" max="10000" value="10" id="logSlider" oninput="updateLogCount(this.value)">
+        </div>
+        
+        <div>
+            <button class="btn btn-primary" onclick="addLogs(100)">+100 条</button>
+            <button class="btn btn-primary" onclick="addLogs(1000)">+1000 条</button>
+            <button class="btn btn-primary" onclick="addLogs(10000)">+10000 条</button>
+        </div>
+        <div>
+            <button class="btn btn-secondary" onclick="addLogs(1)">+1 条</button>
+            <button class="btn btn-success" onclick="scrollToBottom()">滚动到底部</button>
+            <button class="btn btn-secondary" onclick="scrollToTop()">滚动到顶部</button>
+        </div>
+        
+        <div style="margin-top: 16px; font-size: 0.75rem; color: #6b7280;">
+            <p>✅ 验证项目：</p>
+            <ul style="padding-left: 16px; margin: 8px 0;">
+                <li>滚动条自动出现</li>
+                <li>无垂直留白</li>
+                <li>10000条 &lt;300ms</li>
+            </ul>
+        </div>
+    </div>
+    
+    <script>
+        // ============================================
+        // 核心 JavaScript 功能
+        // ============================================
+        
+        const scrollContent = document.getElementById('scrollContent');
+        const logsDisplay = document.getElementById('logsDisplay');
+        const pageContainer = document.getElementById('pageContainer');
+        const logsCard = document.getElementById('logsCard');
+        
+        // 添加日志条目
+        function addLogs(count) {
+            const startTime = performance.now();
+            const existingLogs = logsDisplay.textContent;
+            let newLogs = '';
+            
+            for (let i = 0; i < count; i++) {
+                const timestamp = new Date().toLocaleTimeString();
+                const levels = ['INFO', 'DEBUG', 'WARN', 'ERROR'];
+                const level = levels[Math.floor(Math.random() * levels.length)];
+                const messages = [
+                    '处理用户请求',
+                    '数据库查询完成',
+                    '缓存更新成功',
+                    'API 调用响应',
+                    '文件写入完成',
+                    '网络请求超时',
+                    '数据同步完成',
+                    '任务调度执行'
+                ];
+                const msg = messages[Math.floor(Math.random() * messages.length)];
+                newLogs += `[${timestamp}] [${level}] ${msg}\n`;
+            }
+            
+            logsDisplay.textContent = existingLogs + newLogs;
+            
+            const endTime = performance.now();
+            const renderTime = endTime - startTime;
+            
+            console.log(`✅ 添加 ${count} 条日志，渲染时间: ${renderTime.toFixed(2)}ms`);
+            
+            // 自动滚动到底部
+            scrollToBottom();
+        }
+        
+        // 清空日志
+        function clearLogs() {
+            logsDisplay.textContent = '';
+        }
+        
+        // 滚动到底部
+        function scrollToBottom() {
+            scrollContent.scrollTo({
+                top: scrollContent.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
+        
+        // 滚动到顶部
+        function scrollToTop() {
+            scrollContent.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        }
+        
+        // 更新日志数量显示
+        function updateLogCount(value) {
+            document.getElementById('logCount').textContent = value;
+        }
+        
+        // 监听滚动事件
+        scrollContent.addEventListener('scroll', () => {
+            const { scrollTop, scrollHeight, clientHeight } = scrollContent;
+            const percentage = scrollHeight > 0 ? (scrollTop / (scrollHeight - clientHeight) * 100).toFixed(1) : 0;
+            console.log(`滚动位置: ${scrollTop}px (${percentage}%)`);
+        });
+        
+        // 性能测试
+        function runPerformanceTest() {
+            const iterations = [100, 1000, 5000, 10000];
+            console.log('========== 性能测试 ==========');
+            
+            iterations.forEach(count => {
+                const startTime = performance.now();
+                addLogs(count);
+                const endTime = performance.now();
+                const renderTime = endTime - startTime;
+                
+                console.log(`${count} 条: ${renderTime.toFixed(2)}ms`);
+            });
+            
+            console.log('========== 测试完成 ==========');
+        }
+        
+        // 高度验证
+        function verifyHeight() {
+            const containerRect = scrollContent.getBoundingClientRect();
+            const parentRect = logsCard.getBoundingClientRect();
+            const windowHeight = window.innerHeight;
+            const headerHeight = 64;
+            const mainPadding = 24 * 2;
+            const cardHeaderHeight = 57;
+            const expectedHeight = windowHeight - headerHeight - mainPadding - cardHeaderHeight - 24; // 24px gap
+            
+            console.log('========== 高度验证 ==========');
+            console.log(`容器高度: ${containerRect.height}px`);
+            console.log(`预期高度: ${expectedHeight}px`);
+            console.log(`偏差: ${Math.abs(containerRect.height - expectedHeight)}px`);
+            console.log(`填充率: ${((containerRect.height / expectedHeight) * 100).toFixed(1)}%`);
+            console.log('================================');
+            
+            // 显示在页面上
+            const verificationResult = document.createElement('div');
+            verificationResult.style.cssText = `
+                position: fixed;
+                top: 80px;
+                left: 24px;
+                background: rgba(16, 185, 129, 0.9);
+                color: white;
+                padding: 12px 16px;
+                border-radius: 8px;
+                font-size: 12px;
+                z-index: 999;
+            `;
+            verificationResult.innerHTML = `
+                <strong>高度验证结果</strong><br>
+                容器: ${containerRect.height.toFixed(0)}px<br>
+                预期: ${expectedHeight.toFixed(0)}px<br>
+                填充: ${((containerRect.height / expectedHeight) * 100).toFixed(1)}%
+            `;
+            document.body.appendChild(verificationResult);
+            
+            setTimeout(() => verificationResult.remove(), 3000);
+        }
+        
+        // 初始化
+        window.addEventListener('load', () => {
+            console.log('🎉 页面加载完成');
+            console.log('📐 验证高度填充...');
+            setTimeout(verifyHeight, 500);
+        });
+        
+        // Resize 监听
+        window.addEventListener('resize', () => {
+            verifyHeight();
+        });
+    </script>
+</body>
+</html>

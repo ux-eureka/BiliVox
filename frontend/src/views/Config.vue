@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col">
+  <div class="config-page h-full flex flex-col">
     <!-- 顶部操作栏 -->
     <t-card :bordered="false" class="mb-6 rounded-lg">
       <div class="flex items-center justify-between">
@@ -15,9 +15,9 @@
     </t-card>
 
     <!-- 主要内容区域 -->
-    <t-card :bordered="false" class="flex-1 overflow-hidden">
+    <div class="main-panel flex-1 overflow-hidden">
       <t-tabs v-model="activeTab" class="flex-1 flex flex-col min-h-0 custom-tabs">
-        <t-tab-panel value="monitor" label="监控配置" :destroy-on-hide="false" class="flex-1 overflow-auto">
+        <t-tab-panel value="monitor" label="监控配置" :destroy-on-hide="false" class="flex-1 overflow-auto" ref="monitorPanelRef">
           <div class="p-6">
             <div class="flex items-center justify-end mb-4">
               <t-button theme="primary" variant="outline" :loading="pollingMonitor" @click="pollMonitorAndQueue">
@@ -65,9 +65,9 @@
           </div>
         </t-tab-panel>
 
-        <t-tab-panel value="pipeline" label="处理模式" :destroy-on-hide="false" class="flex-1 overflow-auto">
-          <div class="p-6 max-w-5xl">
-            <t-form :data="config" label-align="top">
+        <t-tab-panel value="pipeline" label="处理模式" :destroy-on-hide="false" class="pipeline-panel flex-1 flex flex-col min-h-0">
+          <div ref="pipelinePanelRef" class="pipeline-content p-6 w-full flex-1 flex flex-col min-h-0 relative overflow-y-auto custom-scrollbar">
+            <t-form :data="config" label-align="top" class="flex-1 min-h-0 w-full">
               <div class="bg-blue-50/50 rounded-xl p-5 border border-blue-100 mb-6">
                 <h3 class="text-lg font-bold mb-4 flex items-center gap-2 text-blue-900">
                   <t-icon name="control-platform" />
@@ -217,7 +217,7 @@
           </div>
         </t-tab-panel>
         
-        <t-tab-panel value="download" label="下载设置" :destroy-on-hide="false" class="flex-1 overflow-auto">
+        <t-tab-panel value="download" label="下载设置" :destroy-on-hide="false" class="flex-1 overflow-auto" ref="downloadPanelRef">
           <div class="p-6 max-w-5xl">
             <t-form :data="config" label-align="top">
 
@@ -355,7 +355,7 @@
           </div>
         </t-tab-panel>
       </t-tabs>
-    </t-card>
+    </div>
 
     <!-- 添加 UP 主对话框 -->
     <t-dialog
@@ -517,7 +517,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch, nextTick, onUnmounted } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { http } from '../api/http'
 import { API_KEY_STORAGE_KEY } from '../api/http'
@@ -532,6 +532,52 @@ const addingUp = ref(false)
 const addUpStatus = ref('default')
 const addUpTips = ref('')
 
+const monitorPanelRef = ref(null)
+const pipelinePanelRef = ref(null)
+const downloadPanelRef = ref(null)
+const scrollPositions = ref({ monitor: 0, pipeline: 0, download: 0 })
+
+const getPanelEl = (tab) => {
+  const refMap = { monitor: monitorPanelRef, pipeline: pipelinePanelRef, download: downloadPanelRef }
+  const el = refMap[tab]?.value
+  return el && el.$el ? el.$el : el
+}
+
+const clampScroll = (el, top) => {
+  if (!el) return
+  el.scrollTop = Math.max(0, Math.min(top, (el.scrollHeight || 0) - (el.clientHeight || 0)))
+}
+
+const onPanelScroll = (tab) => {
+  const el = getPanelEl(tab)
+  if (!el) return
+  const top = el.scrollTop || 0
+  scrollPositions.value[tab] = Math.round(top)
+}
+
+const attachScrollListeners = () => {
+  ;['monitor', 'pipeline', 'download'].forEach(tab => {
+    const el = getPanelEl(tab)
+    if (el) el.addEventListener('scroll', () => onPanelScroll(tab), { passive: true })
+  })
+}
+
+const detachScrollListeners = () => {
+  ;['monitor', 'pipeline', 'download'].forEach(tab => {
+    const el = getPanelEl(tab)
+    if (el) el.removeEventListener?.('scroll', () => onPanelScroll(tab))
+  })
+}
+
+watch(activeTab, async (newTab, oldTab) => {
+  const oldEl = getPanelEl(oldTab)
+  if (oldEl) scrollPositions.value[oldTab] = Math.round(oldEl.scrollTop || 0)
+  await nextTick()
+  const newEl = getPanelEl(newTab)
+  if (newEl) {
+    clampScroll(newEl, scrollPositions.value[newTab] || 0)
+  }
+})
 // Preset Management
 const showPresetDialog = ref(false)
 const presets = ref([])
@@ -936,8 +982,14 @@ const pollMonitorAndQueue = async () => {
 onMounted(() => {
   fetchConfig()
   fetchAuthStatus()
+  nextTick(() => {
+    attachScrollListeners()
+  })
 })
 
+onUnmounted(() => {
+  detachScrollListeners()
+})
 const fetchAuthStatus = async () => {
   try {
     const response = await http.get('/api/auth_status')
@@ -1045,7 +1097,98 @@ const pickFfmpeg = async () => {
 </script>
 
 <style scoped>
+.config-page {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  --panel-padding-y: 24px;
+  --panel-padding-x: 24px;
+  --panel-bottom-offset: 0px;
+}
+
+.config-page :deep(.t-card__body) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.config-page .main-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.config-page :deep(.t-tabs__content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  height: 100%;
+}
+
+.config-page :deep(.t-tabs__panel) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  height: 100%;
+}
+
+.config-page :deep(.pipeline-panel) {
+  overflow: hidden;
+  height: 100%;
+}
+
+.config-page :deep(.pipeline-content) {
+  box-sizing: border-box;
+  padding-bottom: var(--panel-padding-y);
+  padding-top: var(--panel-padding-y);
+  padding-left: var(--panel-padding-x);
+  padding-right: var(--panel-padding-x);
+  height: 100%;
+}
+
+.config-page :deep(.pipeline-content .t-form) {
+  box-sizing: border-box;
+  margin-bottom: var(--panel-bottom-offset);
+  max-height: 100%;
+}
+
+.config-page :deep(.pipeline-content .t-form > *:last-child) {
+  margin-bottom: 0;
+}
+
+.config-page :deep(.t-form) {
+  max-height: 100%;
+}
+
 .path-input :deep(.t-input__inner) {
   text-overflow: ellipsis;
 }
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.4);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(148, 163, 184, 0.6);
+}
+
 </style>
