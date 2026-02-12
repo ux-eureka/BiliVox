@@ -1,19 +1,6 @@
 [
   {
     "upName": "跟着扶安学AI",
-    "title": "【Dify入门教程】10分钟彻底学懂Dify，手把手教你用AI搭建自己的工作流！全程干货无废话！带你少走99%的弯路！",
-    "timestamp": "2026-02-06 15:13:49",
-    "status": "成功",
-    "taskId": "up::3493273960188567",
-    "filePath": "跟着扶安学AI\\【Dify入门教程】10分钟彻底学懂Dify，手把手教你用AI搭建自己的工作流！全程干货无废话！带你少走99%的弯路！.md",
-    "detail": "处理完成",
-    "durationSec": 220,
-    "downloadSec": 3,
-    "asrSec": 108,
-    "llmSec": 109
-  },
-  {
-    "upName": "跟着扶安学AI",
     "title": "211硕士AI开发模拟面试，期望月薪30K，你觉得值吗？",
     "timestamp": "2026-02-06 15:14:54",
     "status": "成功",
@@ -1298,5 +1285,18 @@
     "downloadSec": 1,
     "asrSec": 32,
     "llmSec": 44
+  },
+  {
+    "upName": "AI应用开发入门",
+    "title": "【保姆级教程】手把手带你用LangGraph+FastAPI搭建AI智能客服系统！从0到1完整智能体开发，超详细教程，小白也能直接抄作业！",
+    "timestamp": "2026-02-10 18:48:30",
+    "status": "成功",
+    "taskId": "video::BV1btcKzHEQ4",
+    "filePath": "AI应用开发入门\\【保姆级教程】手把手带你用LangGraph+FastAPI搭建AI智能客服系统！从0到1完整智能体开发，超详细教程，小白也能直接抄作业！.md",
+    "detail": "处理完成",
+    "durationSec": 928,
+    "downloadSec": 9,
+    "asrSec": 597,
+    "llmSec": 322
   }
 ]
